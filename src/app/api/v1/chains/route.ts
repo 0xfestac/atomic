@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { CHAIN_LIST, CHAIN_WARNINGS } from "@/lib/atomic/chains";
+import { ensureChains } from "@/lib/atomic/chains-config";
 import { NO_STORE, guardRequest } from "@/lib/atomic/api/guard";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +15,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const limited = guardRequest(req, 120);
   if (limited) return limited;
+  await ensureChains();
 
   return NextResponse.json(
     {

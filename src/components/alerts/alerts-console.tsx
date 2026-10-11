@@ -6,13 +6,15 @@ import { useWorkspace } from "@/lib/atomic/workspace";
 import { CONDITION_LABELS, evaluateRules, isValidWebhookUrl } from "@/lib/atomic/alerts/rules";
 import { isEvmAddress, shortAddress } from "@/lib/atomic/engine/prng";
 import { entitySummary } from "@/lib/atomic/engine/entities";
+import { DEMO_CHAIN_LIST } from "@/lib/atomic/chains";
 import { Badge, Panel, RiskBadge, SectionHeader } from "@/components/ui";
-import type { AlertCondition, AlertRule, RiskLevel } from "@/lib/atomic/types";
+import type { AlertCondition, AlertRule, Chain, RiskLevel } from "@/lib/atomic/types";
 
 const CONDITIONS = Object.keys(CONDITION_LABELS) as AlertCondition[];
 
-export function AlertsConsole() {
+export function AlertsConsole({ chains = DEMO_CHAIN_LIST }: { chains?: Chain[] }) {
   const { alertRules, upsertRule, removeRule, toggleRule, dismissedEvents, dismissEvent, hydrated } = useWorkspace();
+  const chainPool = useMemo(() => chains.map((c) => c.id), [chains]);
 
   const [name, setName] = useState("");
   const [target, setTarget] = useState("");
@@ -25,7 +27,7 @@ export function AlertsConsole() {
   const webhookValid = channel !== "webhook" || isValidWebhookUrl(webhookUrl);
   const canCreate = name.trim().length >= 3 && targetValid && webhookValid;
 
-  const events = useMemo(() => (hydrated ? evaluateRules(alertRules) : []), [alertRules, hydrated]);
+  const events = useMemo(() => (hydrated ? evaluateRules(alertRules, chainPool) : []), [alertRules, chainPool, hydrated]);
   const visibleEvents = events.filter((e) => !dismissedEvents.includes(e.id));
 
   if (!hydrated) return <p className="text-xs text-mist-dim">Loading workspace…</p>;
@@ -54,7 +56,7 @@ export function AlertsConsole() {
           <SectionHeader title="Rules" sub="Persisted in this workspace · evaluated live against the dataset" />
           <div className="space-y-2">
             {alertRules.map((rule) => {
-              const subject = entitySummary(rule.target);
+              const subject = entitySummary(rule.target, chainPool);
               return (
                 <div key={rule.id} className="rounded-lg border border-ink-700 bg-ink-800/50 px-4 py-3">
                   <div className="flex flex-wrap items-center gap-2">

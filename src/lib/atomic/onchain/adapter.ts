@@ -212,6 +212,11 @@ export interface OnchainFacts {
 const FACTS_TTL = 60_000;
 const factsCache = new Map<string, { at: number; facts: OnchainFacts | null }>();
 
+/** Drop cached live facts — used on chain-registry reloads. */
+export function resetOnchainCaches(): void {
+  factsCache.clear();
+}
+
 function factsKey(chain: ChainId, address: string): string {
   return `${chain}:${address.toLowerCase()}`;
 }

@@ -1,4 +1,5 @@
 import { CHAIN_LIST, CHAIN_WARNINGS } from "@/lib/atomic/chains";
+import { ensureChains } from "@/lib/atomic/chains-config";
 import { chainHealth, liveEnabled } from "@/lib/atomic/onchain/rpc";
 import { Badge, PageHeader, Panel, SectionHeader } from "@/components/ui";
 import { IntegrationToggle } from "@/components/integrations/toggle";
@@ -39,6 +40,7 @@ const ADD_CHAIN_SNIPPET = `ATOMIC_CHAINS='[{
 
 export default async function IntegrationsPage() {
   // Health for every configured chain, probed in parallel (30s cache).
+  await ensureChains();
   const liveChains = CHAIN_LIST.filter((c) => c.live);
   const health = liveEnabled()
     ? await Promise.all(liveChains.map((c) => chainHealth(c.id)))
@@ -101,10 +103,10 @@ export default async function IntegrationsPage() {
             </div>
           )}
           <div className="mt-4 border-t border-ink-700 pt-4">
-            <SectionHeader title="Add a chain" sub="Registry changes are environment config — no code changes" />
+            <SectionHeader title="Add a chain" sub="Registry changes are configuration — no code changes" />
             <pre className="overflow-auto rounded-lg border border-ink-700 bg-ink-900 px-4 py-3 font-mono text-[11px] leading-relaxed text-mist">{ADD_CHAIN_SNIPPET}</pre>
             <p className="mt-2 text-[11px] leading-relaxed text-mist-dim">
-              New ids append a network; existing ids patch the built-in. ATOMIC_RPC_&lt;ID&gt; replaces endpoints (comma-separated), ATOMIC_CHAINS_DISABLED removes entries. See the README for the full schema.
+              New ids append a network; existing ids patch the built-in. ATOMIC_RPC_&lt;ID&gt; replaces endpoints (comma-separated), ATOMIC_CHAINS_DISABLED removes entries. For live changes without a restart, set ATOMIC_CHAINS_FILE to a JSON file — edits to it are detected and applied automatically. See the README for the full schema.
             </p>
           </div>
         </Panel>

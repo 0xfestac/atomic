@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
-import { chainName } from "@/lib/atomic/chains";
+import { CHAIN_LIST, chainName } from "@/lib/atomic/chains";
+import { ensureChains } from "@/lib/atomic/chains-config";
 import { activity, nfts } from "@/lib/atomic/engine/activity";
 import { entitySummary } from "@/lib/atomic/engine/entities";
 import { isEvmAddress, formatUsd } from "@/lib/atomic/engine/prng";
@@ -36,6 +37,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 export default async function EntityPage({ params, searchParams }: PageProps) {
   const { address: raw } = await params;
   const { tab } = await searchParams;
+  await ensureChains();
 
   // ENS names resolve server-side, then canonicalize to the address URL.
   if (!isEvmAddress(raw)) {
@@ -46,9 +48,12 @@ export default async function EntityPage({ params, searchParams }: PageProps) {
   }
   const address = raw.toLowerCase();
 
-  const entity = entitySummary(address);
+  // Demo-plane profiles sample the active registry, so operator-added
+  // chains participate in analytics like any built-in.
+  const chainPool = CHAIN_LIST.map((c) => c.id);
+  const entity = entitySummary(address, chainPool);
   const activeTab = TABS.some((t) => t.id === tab) ? tab! : "overview";
-  const txs = activity(entity, 40);
+  const txs = activity(entity, 40, chainPool);
   const report = analystReport(entity);
   const live = await onchainFactsForChains(entity.chains, address);
   const security = securityReport(address, entity, live);
@@ -152,7 +157,7 @@ export default async function EntityPage({ params, searchParams }: PageProps) {
         {activeTab === "graph" && (
           <Panel>
             <SectionHeader title="Relationship graph" sub="Direct counterparties traced over the lookback window" />
-            <RelationshipGraphView entity={entity} />
+            <RelationshipGraphView entity={entity} chainPool={chainPool} />
           </Panel>
         )}
 

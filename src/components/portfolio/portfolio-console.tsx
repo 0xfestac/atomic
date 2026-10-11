@@ -5,19 +5,21 @@ import { useMemo } from "react";
 import { useWorkspace } from "@/lib/atomic/workspace";
 import { entitySummary } from "@/lib/atomic/engine/entities";
 import { holdings, nfts } from "@/lib/atomic/engine/activity";
-import { chainOrNull } from "@/lib/atomic/chains";
+import { chainOrNull, DEMO_CHAIN_LIST } from "@/lib/atomic/chains";
 import { formatAmount, formatUsd } from "@/lib/atomic/engine/prng";
 import { EmptyState, Panel, RiskBadge, SectionHeader, Sparkline, Stat } from "@/components/ui";
 import { priceSeries } from "@/lib/atomic/engine/tokens";
+import type { Chain } from "@/lib/atomic/types";
 
 const TREASURY = "0xa70f1c00000000000000000000000000000a70f1";
 
-export function PortfolioConsole() {
+export function PortfolioConsole({ chains = DEMO_CHAIN_LIST }: { chains?: Chain[] }) {
   const { watchlist, hydrated } = useWorkspace();
+  const chainPool = useMemo(() => chains.map((c) => c.id), [chains]);
   const subjects = useMemo(() => {
     const list = hydrated ? [...new Set([TREASURY, ...watchlist])] : [TREASURY];
-    return list.map((a) => ({ address: a, entity: entitySummary(a) }));
-  }, [watchlist, hydrated]);
+    return list.map((a) => ({ address: a, entity: entitySummary(a, chainPool) }));
+  }, [watchlist, hydrated, chainPool]);
 
   const positions = useMemo(
     () =>

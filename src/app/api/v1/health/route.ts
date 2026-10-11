@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { CHAIN_LIST } from "@/lib/atomic/chains";
+import { ensureChains } from "@/lib/atomic/chains-config";
 import { liveEnabled, chainHealth } from "@/lib/atomic/onchain/rpc";
 import { NO_STORE, guardRequest } from "@/lib/atomic/api/guard";
 
@@ -10,6 +11,7 @@ const VERSION = "1.0.0";
 export async function GET(req: Request) {
   const limited = guardRequest(req, 300);
   if (limited) return limited;
+  await ensureChains();
 
   const primary = CHAIN_LIST.find((c) => c.live);
   const health = liveEnabled() && primary ? await chainHealth(primary.id) : null;

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { scanIntentParams } from "@/lib/atomic/security/checks";
 import { isChainId } from "@/lib/atomic/chains";
+import { ensureChains } from "@/lib/atomic/chains-config";
 import { BodyTooLarge, NO_STORE, guardRequest, jsonError, readJsonBody, validAddress } from "@/lib/atomic/api/guard";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +15,7 @@ function boundedNumber(value: unknown, max: number): number | undefined {
 export async function POST(req: Request) {
   const limited = guardRequest(req);
   if (limited) return limited;
+  await ensureChains();
 
   let body: unknown;
   try {

@@ -4,6 +4,7 @@ import { isEvmAddress } from "@/lib/atomic/engine/prng";
 import { securityReport } from "@/lib/atomic/security/checks";
 import { onchainFactsForChains } from "@/lib/atomic/onchain/adapter";
 import { CHAIN_LIST, isChainId } from "@/lib/atomic/chains";
+import { ensureChains } from "@/lib/atomic/chains-config";
 import { Badge, CheckStatusIcon, PageHeader, Panel, RiskBadge, SectionHeader, Stat } from "@/components/ui";
 import { AddressScanForm } from "@/components/security/scan-form";
 
@@ -19,9 +20,11 @@ const CATEGORIES: { id: string; label: string; sub: string }[] = [
 
 export default async function SecurityPage({ searchParams }: { searchParams: Promise<{ address?: string; chain?: string }> }) {
   const { address, chain } = await searchParams;
+  await ensureChains();
   const valid = address !== undefined && isEvmAddress(address);
   const subject = valid ? address!.toLowerCase() : null;
-  const entity = subject ? entitySummary(subject) : null;
+  const chainPool = CHAIN_LIST.map((c) => c.id);
+  const entity = subject ? entitySummary(subject, chainPool) : null;
   const probeChains = chain && isChainId(chain) ? [chain] : entity?.chains ?? [];
   const live = subject ? await onchainFactsForChains(probeChains, subject) : [];
   const report = subject ? securityReport(subject, entity ?? undefined, live) : null;

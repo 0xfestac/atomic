@@ -1,4 +1,5 @@
-import type { AlertCondition, AlertEvent, AlertRule, EntitySummary, RiskLevel } from "../types";
+import type { AlertCondition, AlertEvent, AlertRule, ChainId, EntitySummary, RiskLevel } from "../types";
+import { DEMO_CHAIN_IDS } from "../chains";
 import { Rng, daysAgoIso, formatUsd, shortAddress } from "../engine/prng";
 import { entitySummary } from "../engine/entities";
 import { activity } from "../engine/activity";
@@ -46,8 +47,8 @@ interface EvaluatedTx {
   type: string;
 }
 
-function evaluateRule(rule: AlertRule): AlertEvent | null {
-  const entity: EntitySummary = entitySummary(rule.target);
+function evaluateRule(rule: AlertRule, chainPool: readonly ChainId[]): AlertEvent | null {
+  const entity: EntitySummary = entitySummary(rule.target, chainPool);
 
   if (rule.condition === "risk-score-above") {
     if (entity.riskScore > rule.threshold) {
@@ -56,7 +57,7 @@ function evaluateRule(rule: AlertRule): AlertEvent | null {
     return null;
   }
 
-  const txs: EvaluatedTx[] = activity(entity, 60).map((tx) => ({
+  const txs: EvaluatedTx[] = activity(entity, 60, chainPool).map((tx) => ({
     valueUsd: tx.valueUsd,
     counterparty: tx.counterparty,
     type: tx.type,
@@ -100,10 +101,10 @@ function makeEvent(rule: AlertRule, entity: EntitySummary, message: string, seve
   };
 }
 
-export function evaluateRules(rules: AlertRule[]): AlertEvent[] {
+export function evaluateRules(rules: AlertRule[], chainPool: readonly ChainId[] = DEMO_CHAIN_IDS): AlertEvent[] {
   return rules
     .filter((r) => r.enabled)
-    .map(evaluateRule)
+    .map((r) => evaluateRule(r, chainPool))
     .filter((e): e is AlertEvent => e !== null)
     .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
 }

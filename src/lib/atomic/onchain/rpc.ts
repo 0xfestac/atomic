@@ -116,6 +116,12 @@ interface HealthEntry {
 const HEALTH_TTL = 30_000;
 const healthCache = new Map<ChainId, HealthEntry>();
 
+/** Drop sticky endpoints and cached health probes — used on chain-registry reloads. */
+export function resetRpcCaches(): void {
+  sticky.clear();
+  healthCache.clear();
+}
+
 export interface ChainHealth {
   chain: ChainId;
   reachable: boolean;

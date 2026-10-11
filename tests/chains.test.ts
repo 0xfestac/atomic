@@ -8,6 +8,7 @@ import {
   explorerAddress,
   explorerTx,
   isChainId,
+  reconfigureChains,
   resolveChains,
   rpcEnvVar,
 } from "@/lib/atomic/chains";
@@ -194,5 +195,35 @@ describe("env var naming", () => {
   it("maps registry ids to env-safe names", () => {
     expect(rpcEnvVar("ethereum")).toBe("ATOMIC_RPC_ETHEREUM");
     expect(rpcEnvVar("zksync-era")).toBe("ATOMIC_RPC_ZKSYNC_ERA");
+  });
+});
+
+describe("reconfigureChains — live registry reload", () => {
+  it("installs operator chains in place and restores the env-only registry", () => {
+    const builtinCount = CHAIN_LIST.length;
+    try {
+      reconfigureChains({ custom: [ZKSYNC] });
+      expect(CHAIN_LIST.length).toBe(builtinCount + 1);
+      expect(isChainId("zksync-era")).toBe(true);
+      expect(chainOrNull("zksync-era")?.evmChainId).toBe(324);
+      expect(chainByEvmId(324)?.id).toBe("zksync-era");
+      expect(isChainId("not-a-chain")).toBe(false);
+
+      reconfigureChains({ custom: [ZKSYNC], disabled: ["base"] });
+      expect(isChainId("base")).toBe(false);
+      expect(isChainId("zksync-era")).toBe(true);
+    } finally {
+      reconfigureChains({});
+    }
+    expect(CHAIN_LIST.length).toBe(builtinCount);
+    expect(isChainId("base")).toBe(true);
+    expect(isChainId("zksync-era")).toBe(false);
+  });
+
+  it("never mutates the built-in definitions across reloads", () => {
+    const snapshot = JSON.stringify(BUILTIN_CHAINS);
+    reconfigureChains({ custom: [{ id: "base", explorer: "https://explorer.example.com" }] });
+    reconfigureChains({});
+    expect(JSON.stringify(BUILTIN_CHAINS)).toBe(snapshot);
   });
 });

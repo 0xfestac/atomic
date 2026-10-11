@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { CHAIN_LIST } from "@/lib/atomic/chains";
+import { ensureChains } from "@/lib/atomic/chains-config";
 import { entitySummary } from "@/lib/atomic/engine/entities";
 import { activity, holdings, relationshipGraph } from "@/lib/atomic/engine/activity";
 import { onchainFactsForChains } from "@/lib/atomic/onchain/adapter";
@@ -9,11 +11,13 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request, { params }: { params: Promise<{ address: string }> }) {
   const limited = guardRequest(req);
   if (limited) return limited;
+  await ensureChains();
 
   const { address } = await params;
   if (!validAddress(address)) return jsonError("invalid address", 400);
 
-  const entity = entitySummary(address);
+  const chainPool = CHAIN_LIST.map((c) => c.id);
+  const entity = entitySummary(address, chainPool);
   const live = await onchainFactsForChains(entity.chains, entity.address);
 
   return NextResponse.json(
@@ -30,8 +34,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ address:
         ownerRenounced: f!.owner?.renounced ?? null,
       })),
       holdings: holdings(entity),
-      relationships: relationshipGraph(entity),
-      activity: activity(entity, 20),
+      relationships: relationshipGraph(entity, chainPool),
+      activity: activity(entity, 20, chainPool),
     },
     { headers: NO_STORE },
   );

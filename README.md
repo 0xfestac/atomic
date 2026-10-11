@@ -65,12 +65,20 @@ ATOMIC_CHAINS_DISABLED=avalanche
 #   avgGasGwei, finalitySec, short, color
 ```
 
+**Hot reload without a restart.** Environment variables are frozen once a process starts, so for live changes point `ATOMIC_CHAINS_FILE` at a JSON file with the same schema as `ATOMIC_CHAINS`:
+
+```bash
+ATOMIC_CHAINS_FILE=/etc/atomic/chains.json
+```
+
+ATOMIC watches the file (change-detected via mtime/size, checked per request with a 1s throttle): editing it re-applies the registry on the next request — env layers first, file entries last (the file wins) — and resets the RPC/health/fact caches so stale endpoints are never reused. Removing the file reverts to env-only configuration; an unparseable file is skipped with a warning and the previous configuration stays active. Registry consumers (pages, security probes, intent targets, typed-data chain ids, the public API) pick the change up immediately; `/integrations` shows the reloaded chains with live health.
+
 Rules enforced by the registry (`src/lib/atomic/chains.ts`):
 
 - **EIP-155 uniqueness** — two chains cannot claim the same `evmChainId`; typed-data signatures are bound to the real chain id, so a collision would mean mis-signed intents. Colliding entries are dropped with a warning.
 - **Fail-safe startup** — invalid entries (bad id, missing fields, unusable endpoints) are skipped with a warning; a config typo can never take the platform down. Warnings appear in server logs, on `/integrations`, and via the API.
 - **Honest provenance** — the active registry (with source `builtin`/`config`, endpoint counts, override flags, and per-chain health) is machine-readable at `GET /api/v1/chains`. Raw endpoint URLs are never exposed — they routinely embed provider keys.
-- **Deterministic demo plane** — engine-sampled profiles always use the built-in chain set, so server/client rendering stays identical no matter which chains operators add. Added chains work for live reads, security probes, health, and intent targets immediately.
+- **Deterministic demo plane** — engine-sampled profiles draw from the active registry, so operator-added chains participate in entity profiles, holdings, activity, portfolio exposure, and alert evaluation like any built-in. The registry is passed from server surfaces into client consoles as props, so server/client rendering stays identical no matter which chains operators configure; the browser fallback (standalone component use) is the built-in set. Added chains work for live reads, security probes, health, and intent targets immediately.
 
 ## Public API (v1)
 

@@ -1,6 +1,7 @@
 import Link from "next/link";
-import type { EntitySummary } from "@/lib/atomic/types";
+import type { ChainId, EntitySummary } from "@/lib/atomic/types";
 import { activity, holdings, relationshipGraph } from "@/lib/atomic/engine/activity";
+import { DEMO_CHAIN_IDS } from "@/lib/atomic/chains";
 import { formatUsd, shortAddress } from "@/lib/atomic/engine/prng";
 import { RiskBadge } from "@/components/ui";
 
@@ -11,8 +12,8 @@ const RISK_COLORS: Record<string, string> = {
   critical: "#f87171",
 };
 
-export function RelationshipGraphView({ entity }: { entity: EntitySummary }) {
-  const graph = relationshipGraph(entity);
+export function RelationshipGraphView({ entity, chainPool = DEMO_CHAIN_IDS }: { entity: EntitySummary; chainPool?: readonly ChainId[] }) {
+  const graph = relationshipGraph(entity, chainPool);
   const W = 720;
   const H = 420;
   const cx = 170;

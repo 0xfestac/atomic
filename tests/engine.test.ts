@@ -31,6 +31,24 @@ describe("engine determinism", () => {
     expect(JSON.stringify(a)).not.toBe(JSON.stringify(b));
   });
 
+  it("profiles sample the supplied chain pool and fall back on an empty one", () => {
+    const pool = ["zksync-era", "ethereum", "base", "polygon"];
+    const profiled = entitySummary(GENERIC, pool);
+    expect(profiled.chains.length).toBeGreaterThan(0);
+    for (const chain of profiled.chains) expect(pool).toContain(chain);
+    expect(JSON.stringify(entitySummary(GENERIC, pool))).toBe(JSON.stringify(profiled));
+    expect(JSON.stringify(entitySummary(GENERIC, []))).toBe(JSON.stringify(entitySummary(GENERIC)));
+  });
+
+  it("operator-added chains flow through relationships and alerts", () => {
+    const pool = ["zksync-era", "ethereum", "base"];
+    const targets = relationshipTargets(GENERIC, 8, pool);
+    expect(targets.every((t) => pool.includes(t.chain))).toBe(true);
+    const rules = defaultRules().filter((r) => r.enabled);
+    const events = evaluateRules(rules, pool);
+    expect(JSON.stringify(events)).toBe(JSON.stringify(evaluateRules(rules, pool)));
+  });
+
   it("price series are stable and trending tokens are sorted by move size", () => {
     expect(priceSeries("WETH", 30)).toEqual(priceSeries("WETH", 30));
     const moves = trendingTokens().map((t) => Math.abs(t.change24h));

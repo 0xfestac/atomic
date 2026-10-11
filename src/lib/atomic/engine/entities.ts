@@ -1,5 +1,5 @@
 import type { ChainId, EntitySummary, EntityType, RiskFlag, RiskLevel } from "../types";
-import { DEMO_CHAIN_LIST } from "../chains";
+import { DEMO_CHAIN_IDS } from "../chains";
 import { Rng, daysAgoIso, isEvmAddress, seededHex } from "./prng";
 
 export interface KnownEntity {
@@ -124,18 +124,24 @@ export function normalizeAddress(value: string): string | null {
   return trimmed.toLowerCase();
 }
 
-/** Deterministic entity profile for any EVM address. */
-export function entitySummary(rawAddress: string): EntitySummary {
+/**
+ * Deterministic entity profile for any EVM address. `chainPool` is the
+ * set of chains the profile may sample: server surfaces pass the active
+ * registry so operator-configured chains participate in the demo plane;
+ * the default is the built-in fallback (identical in the browser bundle
+ * and tests). An empty pool falls back to the built-ins.
+ */
+export function entitySummary(rawAddress: string, chainPool: readonly ChainId[] = DEMO_CHAIN_IDS): EntitySummary {
   const address = normalizeAddress(rawAddress) ?? rawAddress.toLowerCase();
   const known = knownEntity(address);
   const rng = new Rng(`entity:${address}`);
+  const pool = chainPool.length > 0 ? chainPool : DEMO_CHAIN_IDS;
 
   const type: EntityType = known?.type ?? (rng.chance(0.35) ? "contract" : "wallet");
   const chainCount = known ? rng.int(2, 4) : rng.int(1, 4);
-  // The demo plane samples built-in chains only, so deterministic
-  // profiles are identical on server and client regardless of which
-  // operator-configured chains the server registry carries.
-  const chains = rng.sample(DEMO_CHAIN_LIST.map((c) => c.id), chainCount) as ChainId[];
+  // Profiles sample the supplied pool, so the same registry on server
+  // and client (passed down as props) renders identical chains.
+  const chains = rng.sample(pool, chainCount) as ChainId[];
   const firstSeenDays = known ? rng.int(900, 2600) : rng.int(3, 1400);
   const lastActiveDays = known ? rng.int(0, 4) : rng.int(0, 45);
 

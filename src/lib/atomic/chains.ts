@@ -13,12 +13,15 @@ import type { Chain, ChainId } from "./types";
  *                           "zksync-era" → ATOMIC_RPC_ZKSYNC_ERA)
  *   ATOMIC_DISABLE_LIVE     1 → never dial any chain (demo plane only)
  *
- * The registry is resolved once at module load. The server sees the
- * fully configured list; client bundles only see the built-ins (env is
- * server-side), so server pages pass the configured list down to client
- * components as props. The deterministic demo plane always samples from
- * the built-in list (DEMO_CHAIN_LIST) to keep server/client renders
- * identical regardless of operator config.
+ * The registry is resolved at module load and can be re-applied at
+ * runtime via reconfigureChains() — the exported CHAIN_LIST / CHAINS /
+ * CHAIN_WARNINGS references are updated in place, so every consumer sees
+ * a reload without remounting. The server sees the fully configured
+ * list; client bundles only see the built-ins (env is server-side), so
+ * server pages pass the configured list down to client components as
+ * props. ATOMIC_CHAINS_FILE (see lib/atomic/chains-config.ts) applies a
+ * JSON config file on top of the env and re-applies it automatically
+ * when the file changes on disk — no restart required.
  */
 
 export const BUILTIN_CHAINS: Chain[] = [
@@ -129,8 +132,11 @@ export const BUILTIN_CHAINS: Chain[] = [
   },
 ];
 
-/** Demo-plane chain set — fixed built-ins, identical on server and client. */
+/** Demo-plane fallback chain set — fixed built-ins, identical on server and client. */
 export const DEMO_CHAIN_LIST: Chain[] = BUILTIN_CHAINS;
+
+/** Ids of the demo-plane fallback pool (the built-ins). */
+export const DEMO_CHAIN_IDS: ChainId[] = DEMO_CHAIN_LIST.map((c) => c.id);
 
 const ID_RE = /^[a-z0-9][a-z0-9-]{1,31}$/;
 const MAX_EVM_CHAIN_ID = 2 ** 53;
@@ -399,23 +405,51 @@ function envRpcOverrides(): Record<string, string[]> {
   return overrides;
 }
 
-const REGISTRY = resolveChains({
-  customJson: envValue("ATOMIC_CHAINS"),
-  disabled: (envValue("ATOMIC_CHAINS_DISABLED") ?? "").split(","),
-  rpcOverrides: envRpcOverrides(),
-});
-
-if (REGISTRY.warnings.length > 0 && typeof window === "undefined") {
-  for (const w of REGISTRY.warnings) console.warn(`[atomic] chain registry: ${w}`);
+/** Registry options derived from the current environment (ATOMIC_CHAINS, ATOMIC_CHAINS_DISABLED, ATOMIC_RPC_*). */
+export function registryOptionsFromEnv(): ResolveChainsOptions {
+  return {
+    customJson: envValue("ATOMIC_CHAINS"),
+    disabled: (envValue("ATOMIC_CHAINS_DISABLED") ?? "").split(","),
+    rpcOverrides: envRpcOverrides(),
+  };
 }
 
-/** Active registry — built-ins plus operator configuration. */
-export const CHAIN_LIST: Chain[] = REGISTRY.chains;
+function logWarnings(warnings: string[]): void {
+  if (warnings.length === 0 || typeof window !== "undefined") return;
+  for (const w of warnings) console.warn(`[atomic] chain registry: ${w}`);
+}
 
-export const CHAINS: Record<ChainId, Chain> = Object.fromEntries(CHAIN_LIST.map((c) => [c.id, c]));
+// Live registry state. The exported references stay stable; reloads swap
+// their contents in place so every holder of the reference sees the
+// update (client bundles only ever install the built-ins).
+export const CHAIN_LIST: Chain[] = [];
+const CHAINS_BY_ID: Record<ChainId, Chain> = {};
+export const CHAINS: Record<ChainId, Chain> = CHAINS_BY_ID;
+export const CHAIN_WARNINGS: string[] = [];
 
-/** Config problems detected at startup; surfaced via /api/v1/chains. */
-export const CHAIN_WARNINGS: string[] = REGISTRY.warnings;
+function installRegistry(registry: ChainRegistry): void {
+  CHAIN_LIST.length = 0;
+  CHAIN_LIST.push(...registry.chains);
+  for (const key of Object.keys(CHAINS_BY_ID)) delete CHAINS_BY_ID[key];
+  for (const c of registry.chains) CHAINS_BY_ID[c.id] = c;
+  CHAIN_WARNINGS.length = 0;
+  CHAIN_WARNINGS.push(...registry.warnings);
+}
+
+/**
+ * Re-resolve and install the registry in place — the running deployment
+ * picks up new/patched/disabled chains on the next request without a
+ * restart. Used at module init and by the ATOMIC_CHAINS_FILE hot reload
+ * (lib/atomic/chains-config.ts).
+ */
+export function reconfigureChains(options: ResolveChainsOptions = {}): ChainRegistry {
+  const registry = resolveChains(options);
+  installRegistry(registry);
+  logWarnings(registry.warnings);
+  return registry;
+}
+
+reconfigureChains(registryOptionsFromEnv());
 
 export function chainOrNull(id: string): Chain | undefined {
   return CHAINS[id];

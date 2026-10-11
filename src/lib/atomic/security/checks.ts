@@ -298,7 +298,7 @@ function applyLiveEvidence(checks: SecurityCheck[], facts: OnchainFacts[]): void
         : "";
       upsert("CHN-01", "On-chain verification", "contract", {
         status: cls.delegation ? "warn" : "info",
-        detail: `Live read on ${chainName}: externally-owned account${holding}${delegation}.`,
+        detail: `Live read on ${chainLabel}: externally-owned account${holding}${delegation}.`,
         evidence: cls.delegation
           ? `eip7702:delegate=${cls.delegation.delegate.toLowerCase()}`
           : `eth_getBalance:${primary.chain}=${primary.nativeBalanceWei?.toString() ?? "n/a"}`,

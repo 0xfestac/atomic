@@ -7,10 +7,16 @@ import { evaluateRules } from "@/lib/atomic/alerts/rules";
 import { RiskBadge, EmptyState } from "@/components/ui";
 import { entitySummary } from "@/lib/atomic/engine/entities";
 import { shortAddress } from "@/lib/atomic/engine/prng";
+import { DEMO_CHAIN_LIST } from "@/lib/atomic/chains";
+import type { Chain } from "@/lib/atomic/types";
 
-export function AlertsFeed() {
+export function AlertsFeed({ chains = DEMO_CHAIN_LIST }: { chains?: Chain[] }) {
   const { alertRules, dismissedEvents, dismissEvent, hydrated } = useWorkspace();
-  const events = useMemo(() => (hydrated ? evaluateRules(alertRules) : []), [alertRules, hydrated]);
+  const chainPool = useMemo(() => chains.map((c) => c.id), [chains]);
+  const events = useMemo(
+    () => (hydrated ? evaluateRules(alertRules, chainPool) : []),
+    [alertRules, chainPool, hydrated],
+  );
   const visible = events.filter((e) => !dismissedEvents.includes(e.id)).slice(0, 5);
 
   return (
@@ -43,7 +49,7 @@ export function AlertsFeed() {
   );
 }
 
-export function WatchlistStrip() {
+export function WatchlistStrip({ chains = DEMO_CHAIN_LIST }: { chains?: Chain[] }) {
   const { watchlist, hydrated } = useWorkspace();
   if (!hydrated) return <p className="text-xs text-mist-dim">Loading workspace…</p>;
   if (watchlist.length === 0) {
@@ -54,10 +60,11 @@ export function WatchlistStrip() {
       />
     );
   }
+  const chainPool = chains.map((c) => c.id);
   return (
     <div className="grid gap-2 sm:grid-cols-2">
       {watchlist.map((address) => {
-        const entity = entitySummary(address);
+        const entity = entitySummary(address, chainPool);
         return (
           <Link
             key={address}

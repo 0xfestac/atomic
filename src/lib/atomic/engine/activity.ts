@@ -1,5 +1,5 @@
 import type { ChainId, EntitySummary, RelationshipEdge, RelationshipGraph, TokenHolding, TxRecord } from "../types";
-import { DEMO_CHAIN_LIST, chainOrNull } from "../chains";
+import { DEMO_CHAIN_IDS, chainOrNull } from "../chains";
 import { KNOWN_ENTITIES, entitySummary, knownEntity, pseudoAddress } from "./entities";
 import { Rng, daysAgoIso } from "./prng";
 import { TOKENS, tokenBySymbol } from "./tokens";
@@ -8,6 +8,10 @@ const BASE_TOKENS = TOKENS.filter((t) => !t.demo).map((t) => t.symbol);
 const DEMO_TOKENS = ["NEXA", "HELIX"];
 
 const TX_TYPES = ["send", "receive", "swap", "approve", "contract"] as const;
+
+function poolOf(chainPool: readonly ChainId[]): readonly ChainId[] {
+  return chainPool.length > 0 ? chainPool : DEMO_CHAIN_IDS;
+}
 
 export function holdings(entity: EntitySummary): TokenHolding[] {
   const rng = new Rng(`holdings:${entity.address}`);
@@ -38,10 +42,11 @@ export function holdings(entity: EntitySummary): TokenHolding[] {
   return rows.sort((a, b) => b.valueUsd - a.valueUsd);
 }
 
-export function activity(entity: EntitySummary, limit = 40): TxRecord[] {
+export function activity(entity: EntitySummary, limit = 40, chainPool: readonly ChainId[] = DEMO_CHAIN_IDS): TxRecord[] {
   const rng = new Rng(`activity:${entity.address}`);
+  const pool = poolOf(chainPool);
   const count = Math.min(limit, Math.max(8, Math.min(entity.txCount, 60)));
-  const counterparties = relationshipTargets(entity.address, 10);
+  const counterparties = relationshipTargets(entity.address, 10, pool);
 
   const txs: TxRecord[] = [];
   for (let i = 0; i < count; i++) {
@@ -84,8 +89,9 @@ interface RelationshipTarget {
 const ANCHOR_CP = KNOWN_ENTITIES.filter((e) => !e.tags.includes("workspace"));
 
 /** The stable pool of entities this address transacts with. */
-export function relationshipTargets(address: string, count: number): (RelationshipTarget & { weight: number; volumeUsd: number; firstInteraction: string; riskLevel: ReturnType<typeof entitySummary>["riskLevel"] })[] {
+export function relationshipTargets(address: string, count: number, chainPool: readonly ChainId[] = DEMO_CHAIN_IDS): (RelationshipTarget & { weight: number; volumeUsd: number; firstInteraction: string; riskLevel: ReturnType<typeof entitySummary>["riskLevel"] })[] {
   const rng = new Rng(`relations:${address}`);
+  const pool = poolOf(chainPool);
   const known = knownEntity(address);
   const total = Math.min(count, rng.int(6, 12));
   const targets: RelationshipTarget[] = [];
@@ -93,11 +99,11 @@ export function relationshipTargets(address: string, count: number): (Relationsh
   // 1-2 named anchors keep the graph meaningful.
   const anchors: RelationshipTarget[] = rng
     .sample(ANCHOR_CP, Math.min(known ? 3 : 2, ANCHOR_CP.length))
-    .map((e) => ({ address: e.address, label: e.label, chain: entitySummary(e.address).chains[0] }));
+    .map((e) => ({ address: e.address, label: e.label, chain: entitySummary(e.address, pool).chains[0] }));
   targets.push(...anchors);
   while (targets.length < total) {
     const addr = pseudoAddress(`peer:${address}:${targets.length}`);
-    if (!targets.some((t) => t.address === addr)) targets.push({ address: addr, label: null, chain: rng.pick(DEMO_CHAIN_LIST.map((c) => c.id)) as ChainId });
+    if (!targets.some((t) => t.address === addr)) targets.push({ address: addr, label: null, chain: rng.pick(pool) as ChainId });
   }
 
   return targets.map((t) => {
@@ -113,8 +119,8 @@ export function relationshipTargets(address: string, count: number): (Relationsh
   }).sort((a, b) => b.volumeUsd - a.volumeUsd);
 }
 
-export function relationshipGraph(entity: EntitySummary): RelationshipGraph {
-  const targets = relationshipTargets(entity.address, 12);
+export function relationshipGraph(entity: EntitySummary, chainPool: readonly ChainId[] = DEMO_CHAIN_IDS): RelationshipGraph {
+  const targets = relationshipTargets(entity.address, 12, chainPool);
   const rng = new Rng(`clusters:${entity.address}`);
 
   const edges: RelationshipEdge[] = targets.map((t) => ({

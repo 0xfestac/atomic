@@ -1,17 +1,19 @@
 import Link from "next/link";
 import { CHAIN_LIST } from "@/lib/atomic/chains";
+import { ensureChains } from "@/lib/atomic/chains-config";
 import { KNOWN_ENTITIES } from "@/lib/atomic/engine/entities";
 import { priceSeries, trendingTokens } from "@/lib/atomic/engine/tokens";
 import { Rng, formatUsd } from "@/lib/atomic/engine/prng";
 import { Badge, Panel, PageHeader, RiskBadge, SectionHeader, Sparkline, Stat } from "@/components/ui";
 import { AlertsFeed, WatchlistStrip } from "@/components/dashboard/live";
 
-// The Discover dashboard renders the chain registry (operator-configured
-// at startup), so it must never be statically prerendered from build-time
-// env.
+// The Discover dashboard renders the chain registry (operator-configured,
+// hot-reloadable), so it must never be statically prerendered from
+// build-time env.
 export const dynamic = "force-dynamic";
 
-export default function DiscoverPage() {
+export default async function DiscoverPage() {
+  await ensureChains();
   const rng = new Rng("dashboard:v1");
   const vol24h = 3_940_000_000 + rng.int(0, 400_000_000);
   const addressesIndexed = 481_220_000 + rng.int(0, 5_000_000);
@@ -68,7 +70,7 @@ export default function DiscoverPage() {
 
         <Panel>
           <SectionHeader title="Alerts feed" sub="Evaluated from workspace rules" />
-          <AlertsFeed />
+          <AlertsFeed chains={CHAIN_LIST} />
         </Panel>
       </div>
 
@@ -166,7 +168,7 @@ export default function DiscoverPage() {
       <div className="mt-6">
         <Panel>
           <SectionHeader title="Workspace watchlist" sub="Pinned subjects — persisted in this browser" />
-          <WatchlistStrip />
+          <WatchlistStrip chains={CHAIN_LIST} />
         </Panel>
       </div>
     </div>
