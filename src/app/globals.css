@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: #07090f;
+  color: #e6e9f2;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+::selection {
+  background: rgba(34, 211, 238, 0.28);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #273049 transparent;
+}
+
+@layer components {
+  .panel {
+    @apply rounded-xl border border-ink-700 bg-ink-850;
+  }
+  .panel-pad {
+    @apply p-5;
+  }
+  .hair {
+    @apply border-ink-700;
+  }
+  .label-mono {
+    @apply font-mono text-[11px] uppercase tracking-[0.14em] text-mist-dim;
+  }
+  .nav-item {
+    @apply flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-mist transition-colors hover:bg-ink-800 hover:text-mist-bright;
+  }
+  .nav-item-active {
+    @apply bg-ink-800 text-white;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .btn-primary {
+    @apply btn bg-atom-cyan text-ink-950 hover:bg-cyan-300;
+  }
+  .btn-ghost {
+    @apply btn border border-ink-600 text-mist-bright hover:border-ink-600 hover:bg-ink-800;
+  }
+  .btn-danger {
+    @apply btn border border-red-900/60 text-red-300 hover:bg-red-950/40;
+  }
+  .input {
+    @apply w-full rounded-lg border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-mist-bright placeholder:text-mist-dim focus:border-atom-cyan/60 focus:outline-none;
+  }
+  .th {
+    @apply px-4 py-2.5 text-left font-mono text-[11px] uppercase tracking-[0.12em] text-mist-dim;
+  }
+  .td {
+    @apply px-4 py-2.5 text-sm text-mist-bright;
+  }
+  .grid-table {
+    @apply min-w-full divide-y divide-ink-700;
+  }
+}
