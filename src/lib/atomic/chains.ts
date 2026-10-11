@@ -1,4 +1,4 @@
-import type { Chain, ChainId } from "./types";
+import type { Chain, ChainId, ConfiguredToken } from "./types";
 
 /**
  * Chain registry. Networks are configuration, not code: the built-in
@@ -12,6 +12,10 @@ import type { Chain, ChainId } from "./types";
  *                           (dashes in ids map to underscores: chain
  *                           "zksync-era" → ATOMIC_RPC_ZKSYNC_ERA)
  *   ATOMIC_DISABLE_LIVE     1 → never dial any chain (demo plane only)
+ *
+ * Each chain def may also carry `tokens` — the ERC-20 contracts probed
+ * for live balances and transfer logs on that chain (see
+ * lib/atomic/onchain/erc20.ts).
  *
  * The registry is resolved at module load and can be re-applied at
  * runtime via reconfigureChains() — the exported CHAIN_LIST / CHAINS /
@@ -185,6 +189,7 @@ interface RawChainDef {
   live?: unknown;
   avgGasGwei?: unknown;
   finalitySec?: unknown;
+  tokens?: unknown;
 }
 
 function asText(v: unknown, max: number): string | undefined {
@@ -230,6 +235,49 @@ function asPositiveNumber(v: unknown): number | undefined {
 function asPositiveInt(v: unknown): number | undefined {
   const n = asPositiveNumber(v);
   return n !== undefined && Number.isInteger(n) ? n : undefined;
+}
+
+const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+const MAX_TOKENS = 24;
+
+/** Parse the optional per-chain `tokens` list — invalid entries are skipped with a warning. */
+function asTokenList(v: unknown, label: string, warnings: string[]): ConfiguredToken[] | undefined {
+  if (v === undefined) return undefined;
+  if (v === null) return []; // explicit empty list clears the chain's token set
+  if (!Array.isArray(v)) {
+    warnings.push(`${label}: tokens must be an array — ignored`);
+    return undefined;
+  }
+  const out: ConfiguredToken[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < v.length; i++) {
+    const raw = v[i] as Record<string, unknown>;
+    if (typeof raw !== "object" || raw === null) {
+      warnings.push(`${label}[${i}]: token entry is not an object — skipped`);
+      continue;
+    }
+    const address = asText(raw.address, 42);
+    if (!address || !ADDRESS_RE.test(address)) {
+      warnings.push(`${label}[${i}]: token address must be 0x + 40 hex — skipped`);
+      continue;
+    }
+    const lower = address.toLowerCase();
+    if (seen.has(lower)) continue;
+    seen.add(lower);
+    const token: ConfiguredToken = { address: lower };
+    const symbol = asText(raw.symbol, 24);
+    if (symbol !== undefined) token.symbol = symbol;
+    const name = asText(raw.name, 64);
+    if (name !== undefined) token.name = name;
+    const decimals = asPositiveInt(raw.decimals);
+    if (decimals !== undefined && decimals <= 36) token.decimals = decimals;
+    out.push(token);
+    if (out.length >= MAX_TOKENS) {
+      warnings.push(`${label}: more than ${MAX_TOKENS} tokens — extra entries dropped`);
+      break;
+    }
+  }
+  return out;
 }
 
 /**
@@ -332,6 +380,8 @@ export function resolveChains(options: ResolveChainsOptions = {}): ChainRegistry
       if (gas !== undefined) merged.avgGasGwei = gas;
       const finality = asPositiveInt(raw.finalitySec);
       if (finality !== undefined) merged.finalitySec = finality;
+      const tokens = asTokenList(raw.tokens, `${label}[${i}] (${id})`, warnings);
+      if (tokens !== undefined) merged.tokens = tokens;
 
       byId.set(id, merged);
     }

@@ -22,6 +22,7 @@
 
 - **Next.js 15 (App Router) + TypeScript + Tailwind** — server components stream engine data; client components own workspace state.
 - **Live on-chain layer** (`src/lib/atomic/onchain/`) — keyless JSON-RPC reads over public endpoints (multi-endpoint failover, timeouts, 60s fact cache): address classification, native balances, tx counts, ERC-20 metadata, EIP-1967 proxy detection, `owner()` reads, bytecode selector scans, ENS resolution, and EIP-55 checksums. Pin dedicated endpoints via `ATOMIC_RPC_<CHAIN>` (see `.env.example`) or set `ATOMIC_DISABLE_LIVE=1` for offline runs.
+- **Live ERC-20 enrichment** (`src/lib/atomic/onchain/erc20.ts`) — real token positions (`balanceOf` over the chain's pinned token list) and a recent transfer log (ERC-20 `Transfer` events decoded from `eth_getLogs` over a bounded block window), no indexer required. Built-in chains ship with a curated major-token list; operators pin their own via the `tokens` config field. Both surfaces degrade to null on chains whose RPC rejects the calls — the UI labels live rows and keeps the deterministic tables separate.
 - **Deterministic data plane** (`src/lib/atomic/engine/`) — every profile, transaction, graph, and report is derived from stable seeds, so results are identical across renders and runs. When live reads succeed they upgrade the view with real chain evidence; when they fail the UI says so and falls back to the demo plane. Live deployments can bind the same interfaces to full indexers (see `/integrations`).
 - **Security engine** (`src/lib/atomic/security/`) — fixed, explainable rules with evidence on every check, labeled `onchain` (live RPC evidence) or `heuristic` (deterministic demo plane). No model calls in the scoring path.
 - **Analyst engine** (`src/lib/atomic/analyst/`) — findings derived from the investigation dataset; an LLM provider may only rephrase, never invent findings.
@@ -63,22 +64,31 @@ ATOMIC_CHAINS_DISABLED=avalanche
 # Optional per-chain flags in ATOMIC_CHAINS entries:
 #   live: false        → demo-plane only; ATOMIC never dials the chain
 #   avgGasGwei, finalitySec, short, color
+#   tokens             → ERC-20 contracts probed for live balances and
+#                        transfer logs on this chain (built-ins ship with
+#                        a curated major-token list; a config entry
+#                        replaces it). symbol/decimals are optional —
+#                        unknown values are read live from the contract.
+#
+#   "tokens": [
+#     { "address": "0x3355df6D4c9C3035724Fd0e3914dE96A5a83aaf4", "symbol": "USDC.e", "decimals": 6 }
+#   ]
 ```
 
-**Hot reload without a restart.** Environment variables are frozen once a process starts, so for live changes point `ATOMIC_CHAINS_FILE` at a JSON file with the same schema as `ATOMIC_CHAINS`:
+**Hot reload without a restart.** Environment variables are frozen once a process starts (an OS-level constraint — changing them means restarting), so for live changes point `ATOMIC_CHAINS_FILE` at a JSON file with the same schema as `ATOMIC_CHAINS`:
 
 ```bash
 ATOMIC_CHAINS_FILE=/etc/atomic/chains.json
 ```
 
-ATOMIC watches the file (change-detected via mtime/size, checked per request with a 1s throttle): editing it re-applies the registry on the next request — env layers first, file entries last (the file wins) — and resets the RPC/health/fact caches so stale endpoints are never reused. Removing the file reverts to env-only configuration; an unparseable file is skipped with a warning and the previous configuration stays active. Registry consumers (pages, security probes, intent targets, typed-data chain ids, the public API) pick the change up immediately; `/integrations` shows the reloaded chains with live health.
+ATOMIC watches the file's directory via `fs.watch` (inotify) — this catches atomic editor saves (write-temp-then-rename) too — and additionally re-checks mtime/size per request (1s throttle) as a fallback for filesystems where watch is unavailable. Whichever lands first, an edit re-applies the registry on the spot: env layers first, file entries last (the file wins), and the RPC/health/fact caches are reset so stale endpoints are never reused. Removing the file reverts to env-only configuration; an unparseable file is skipped with a warning and the previous configuration stays active. Registry consumers (pages, security probes, intent targets, typed-data chain ids, the public API) pick the change up immediately; `/integrations` shows the reloaded chains with live health.
 
 Rules enforced by the registry (`src/lib/atomic/chains.ts`):
 
 - **EIP-155 uniqueness** — two chains cannot claim the same `evmChainId`; typed-data signatures are bound to the real chain id, so a collision would mean mis-signed intents. Colliding entries are dropped with a warning.
 - **Fail-safe startup** — invalid entries (bad id, missing fields, unusable endpoints) are skipped with a warning; a config typo can never take the platform down. Warnings appear in server logs, on `/integrations`, and via the API.
 - **Honest provenance** — the active registry (with source `builtin`/`config`, endpoint counts, override flags, and per-chain health) is machine-readable at `GET /api/v1/chains`. Raw endpoint URLs are never exposed — they routinely embed provider keys.
-- **Deterministic demo plane** — engine-sampled profiles draw from the active registry, so operator-added chains participate in entity profiles, holdings, activity, portfolio exposure, and alert evaluation like any built-in. The registry is passed from server surfaces into client consoles as props, so server/client rendering stays identical no matter which chains operators configure; the browser fallback (standalone component use) is the built-in set. Added chains work for live reads, security probes, health, and intent targets immediately.
+- **Deterministic demo plane** — engine-sampled profiles draw from the active registry, so operator-added chains participate in entity profiles, holdings, activity, portfolio exposure, and alert evaluation like any built-in. The registry is passed from server surfaces into client consoles as props, so server/client rendering stays identical no matter which chains operators configure; the browser fallback (standalone component use) is the built-in set. Added chains work for live reads, security probes, health, intent targets, and ERC-20 balance/transfer enrichment immediately — pin their token contracts with the `tokens` field.
 
 ## Public API (v1)
 

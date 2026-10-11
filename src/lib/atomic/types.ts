@@ -6,6 +6,18 @@
  */
 export type ChainId = string;
 
+/** ERC-20 contract an operator pins to a chain for live balance reads. */
+export interface ConfiguredToken {
+  /** token contract address (0x + 40 hex, case-insensitive) */
+  address: string;
+  /** display symbol; read live from the contract when omitted */
+  symbol?: string;
+  /** display name; read live from the contract when omitted */
+  name?: string;
+  /** decimals; read live from the contract when omitted */
+  decimals?: number;
+}
+
 export interface Chain {
   id: ChainId;
   name: string;
@@ -26,6 +38,13 @@ export interface Chain {
   source: "builtin" | "config";
   /** true when ATOMIC_RPC_<ID> replaced the default endpoint list */
   rpcOverridden: boolean;
+  /**
+   * ERC-20 contracts probed for live balances/transfer logs on this
+   * chain. Set via the `tokens` config field; when absent, built-in
+   * chains fall back to the platform's curated major-token list
+   * (lib/atomic/onchain/erc20.ts).
+   */
+  tokens?: ConfiguredToken[];
 }
 
 export type EntityType = "wallet" | "contract" | "token";
@@ -109,6 +128,37 @@ export interface TokenMeta {
   liquidityUsd: number;
   category: "stable" | "major" | "defi" | "governance" | "meme" | "project";
   demo: boolean;
+}
+
+/** Live ERC-20 balance read via eth_call balanceOf over public RPC. */
+export interface LiveTokenPosition {
+  chain: ChainId;
+  /** token contract address (lowercase) */
+  token: string;
+  symbol: string;
+  name: string | null;
+  decimals: number;
+  /** raw balance as a decimal string (bigint-safe) */
+  amountRaw: string;
+  /** amount in token units */
+  amount: number;
+}
+
+/** Live ERC-20 Transfer log involving a subject, decoded from eth_getLogs. */
+export interface LiveTransfer {
+  hash: string;
+  chain: ChainId;
+  blockNumber: number;
+  /** block timestamp as ISO, or null when the block header read failed */
+  timestamp: string | null;
+  /** token contract address (lowercase) */
+  token: string;
+  symbol: string | null;
+  /** "in" = subject received, "out" = subject sent */
+  direction: "in" | "out";
+  counterparty: string;
+  amountRaw: string;
+  amount: number;
 }
 
 export interface SecurityCheck {

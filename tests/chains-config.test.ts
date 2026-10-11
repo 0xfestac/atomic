@@ -1,9 +1,9 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CHAIN_LIST, chainOrNull, isChainId } from "@/lib/atomic/chains";
-import { ensureChains } from "@/lib/atomic/chains-config";
+import { ensureChains, stopChainsConfigWatcherForTests } from "@/lib/atomic/chains-config";
 
 const FILE = join(mkdtempSync(join(tmpdir(), "atomic-chains-")), "chains.json");
 
@@ -23,6 +23,7 @@ function writeConfig(value: unknown): void {
 }
 
 afterEach(() => {
+  stopChainsConfigWatcherForTests();
   delete process.env.ATOMIC_CHAINS_FILE;
   rmSync(FILE, { force: true });
 });
@@ -71,5 +72,42 @@ describe("ensureChains — ATOMIC_CHAINS_FILE hot reload", () => {
     // Unparseable file is ignored; env-only registry stays active.
     expect(isChainId("zksync-era")).toBe(false);
     expect(CHAIN_LIST.length).toBe(builtinCount);
+  });
+
+  it("applies edits via the directory watcher without waiting for the poll cycle", async () => {
+    process.env.ATOMIC_CHAINS_FILE = FILE;
+    writeConfig([ZKSYNC]);
+    await ensureChains({ force: true });
+    expect(isChainId("zksync-era")).toBe(true);
+
+    // The test never calls ensureChains again — only the fs.watch
+    // watcher (watching the directory, so atomic saves are caught too)
+    // can apply this edit.
+    writeConfig([{
+      id: "watched-net",
+      name: "Watched Net",
+      evmChainId: 88_884,
+      nativeSymbol: "W",
+      rpc: ["https://rpc.watched.example.com"],
+    }]);
+    await vi.waitFor(() => expect(isChainId("watched-net")).toBe(true), { timeout: 5_000, interval: 50 });
+    expect(CHAIN_LIST.length).toBe(builtinCount + 1);
+  }, 10_000);
+
+  it("does not re-apply or re-log when the file content is unchanged", async () => {
+    process.env.ATOMIC_CHAINS_FILE = FILE;
+    writeConfig([ZKSYNC]);
+    await ensureChains({ force: true });
+    expect(isChainId("zksync-era")).toBe(true);
+    // A watcher spurious event (or a forced re-check) with identical
+    // content must be a silent no-op, not another reload log line.
+    const logSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await ensureChains({ force: true });
+      expect(isChainId("zksync-era")).toBe(true);
+      expect(logSpy).not.toHaveBeenCalled();
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 });

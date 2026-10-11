@@ -9,10 +9,12 @@ import { isEvmAddress, formatUsd } from "@/lib/atomic/engine/prng";
 import { analystReport } from "@/lib/atomic/analyst/report";
 import { securityReport } from "@/lib/atomic/security/checks";
 import { onchainFactsForChains, resolveEns } from "@/lib/atomic/onchain/adapter";
+import { liveTokenBalancesForChains, liveTransfersForChains } from "@/lib/atomic/onchain/erc20";
 import { isEnsName } from "@/lib/atomic/onchain/name";
 import { Badge, CheckStatusIcon, PageHeader, Panel, RiskBadge, RiskGauge, SectionHeader } from "@/components/ui";
 import { ActivityTable, FlagsPanel, HoldingsTable, RelationshipGraphView } from "@/components/investigate/entity-view";
 import { EntityActions } from "@/components/investigate/entity-actions";
+import { LivePositionsPanel, LiveTransfersPanel } from "@/components/investigate/live-enrichment";
 import { OnchainPanel } from "@/components/investigate/onchain-panel";
 
 interface PageProps {
@@ -57,6 +59,10 @@ export default async function EntityPage({ params, searchParams }: PageProps) {
   const report = analystReport(entity);
   const live = await onchainFactsForChains(entity.chains, address);
   const security = securityReport(address, entity, live);
+  const [livePositions, liveTransfers] = await Promise.all([
+    liveTokenBalancesForChains(entity.chains, address, 3),
+    liveTransfersForChains(entity.chains, address, 3),
+  ]);
   const nftPositions = nfts(entity);
   const ageDays = Math.max(1, Math.round((Date.UTC(2026, 9, 1) - new Date(entity.firstSeen).getTime()) / 86400_000));
   const inflow = txs.filter((t) => t.type === "receive").reduce((a, t) => a + t.valueUsd, 0);
@@ -97,6 +103,8 @@ export default async function EntityPage({ params, searchParams }: PageProps) {
 
           <OnchainPanel facts={live} />
 
+          <LivePositionsPanel positions={livePositions} />
+
           <div className="grid gap-4 sm:grid-cols-3">
             <Panel><div className="label-mono">Inflow 90d</div><div className="mt-1.5 font-mono text-lg text-emerald-400">{formatUsd(inflow)}</div></Panel>
             <Panel><div className="label-mono">Outflow 90d</div><div className="mt-1.5 font-mono text-lg text-red-400">{formatUsd(outflow)}</div></Panel>
@@ -122,12 +130,13 @@ export default async function EntityPage({ params, searchParams }: PageProps) {
       <div className="mt-6">
         {activeTab === "overview" && (
           <div className="space-y-6">
+            <LiveTransfersPanel transfers={liveTransfers} />
             <Panel>
-              <SectionHeader title="Token holdings" sub="Positions attributed to this subject across chains" />
+              <SectionHeader title="Token holdings" sub="Deterministic demo plane · modeled positions across chains" />
               <HoldingsTable entity={entity} />
             </Panel>
             <Panel>
-              <SectionHeader title="Recent activity" sub="Most recent 15 decoded transactions" />
+              <SectionHeader title="Recent activity" sub="Deterministic demo plane · 15 most recent modeled transactions" />
               <ActivityTable entity={entity} />
             </Panel>
             {nftPositions.length > 0 && (

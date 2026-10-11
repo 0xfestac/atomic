@@ -152,6 +152,47 @@ describe("resolveChains — operator configuration", () => {
     const { chains } = resolveChains({ custom: [{ ...ZKSYNC, live: false }] });
     expect(chains.find((c) => c.id === "zksync-era")?.live).toBe(false);
   });
+
+  it("installs the tokens field on new chains", () => {
+    const { chains, warnings } = resolveChains({
+      custom: [{
+        ...ZKSYNC,
+        tokens: [
+          { address: "0x3355DF6D4c9C3035724Fd0e3914dE96A5a83aaf4", symbol: "USDC", decimals: 6 },
+          { address: "0x3355df6d4c9c3035724fd0e3914de96a5a83aaf4", symbol: "DUP" }, // duplicate address — dropped
+        ],
+      }],
+    });
+    expect(warnings).toEqual([]);
+    const zk = chains.find((c) => c.id === "zksync-era");
+    expect(zk?.tokens).toEqual([{ address: "0x3355df6d4c9c3035724fd0e3914de96a5a83aaf4", symbol: "USDC", decimals: 6 }]);
+  });
+
+  it("patches built-in tokens and skips invalid entries with warnings", () => {
+    const { chains, warnings } = resolveChains({
+      custom: [{
+        id: "ethereum",
+        tokens: [
+          { address: "0xnot-an-address" }, // invalid — skipped
+          { address: "0x6b175474e89094c44da98b954eedeac495271d0f", symbol: "DAI", decimals: 18 },
+        ],
+      }],
+    });
+    const eth = chains.find((c) => c.id === "ethereum");
+    // Patched chain: operator list replaces the curated default entirely.
+    expect(eth?.tokens).toEqual([{ address: "0x6b175474e89094c44da98b954eedeac495271d0f", symbol: "DAI", decimals: 18 }]);
+    expect(warnings.join(" ")).toMatch(/token address must be 0x \+ 40 hex/);
+    // The built-in definition itself is untouched.
+    expect(BUILTIN_CHAINS.find((c) => c.id === "ethereum")?.tokens).toBeUndefined();
+  });
+
+  it("treats tokens:null as an explicit clear and tokens:<junk> as ignored", () => {
+    const cleared = resolveChains({ custom: [{ id: "ethereum", tokens: null }] });
+    expect(cleared.chains.find((c) => c.id === "ethereum")?.tokens).toEqual([]);
+    const junk = resolveChains({ custom: [{ id: "ethereum", tokens: "nope" }] });
+    expect(junk.chains.find((c) => c.id === "ethereum")?.tokens).toBeUndefined();
+    expect(junk.warnings.join(" ")).toMatch(/tokens must be an array/);
+  });
 });
 
 describe("typed-data chain binding", () => {

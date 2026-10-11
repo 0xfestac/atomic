@@ -24,7 +24,7 @@ const API_ENDPOINTS = [
   { method: "GET", path: "/api/v1/health", desc: "Service heartbeat + primary chain probe" },
   { method: "GET", path: "/api/v1/chains", desc: "Configured chain registry (adds, patches, EIP-155 ids)" },
   { method: "GET", path: "/api/v1/tokens", desc: "Token catalog (demo snapshot)" },
-  { method: "GET", path: "/api/v1/entities/{address}", desc: "Entity profile, holdings, relationships" },
+  { method: "GET", path: "/api/v1/entities/{address}", desc: "Entity profile, live ERC-20 positions & transfers, relationships" },
   { method: "GET", path: "/api/v1/security/{address}", desc: "Deterministic security report" },
   { method: "POST", path: "/api/v1/intents/scan", desc: "Pre-flight scan of intent parameters" },
 ];
@@ -35,7 +35,10 @@ const ADD_CHAIN_SNIPPET = `ATOMIC_CHAINS='[{
   "evmChainId": 324,
   "nativeSymbol": "ETH",
   "rpc": ["https://mainnet.era.zksync.io"],
-  "explorer": "https://explorer.zksync.io"
+  "explorer": "https://explorer.zksync.io",
+  "tokens": [
+    { "address": "0x3355df6D4c9C3035724Fd0e3914dE96A5a83aaf4", "symbol": "USDC.e", "decimals": 6 }
+  ]
 }]'`;
 
 export default async function IntegrationsPage() {
@@ -106,7 +109,7 @@ export default async function IntegrationsPage() {
             <SectionHeader title="Add a chain" sub="Registry changes are configuration — no code changes" />
             <pre className="overflow-auto rounded-lg border border-ink-700 bg-ink-900 px-4 py-3 font-mono text-[11px] leading-relaxed text-mist">{ADD_CHAIN_SNIPPET}</pre>
             <p className="mt-2 text-[11px] leading-relaxed text-mist-dim">
-              New ids append a network; existing ids patch the built-in. ATOMIC_RPC_&lt;ID&gt; replaces endpoints (comma-separated), ATOMIC_CHAINS_DISABLED removes entries. For live changes without a restart, set ATOMIC_CHAINS_FILE to a JSON file — edits to it are detected and applied automatically. See the README for the full schema.
+              New ids append a network; existing ids patch the built-in. ATOMIC_RPC_&lt;ID&gt; replaces endpoints (comma-separated), ATOMIC_CHAINS_DISABLED removes entries. The optional `tokens` field pins ERC-20 contracts for live balance/transfer reads on the chain (built-ins ship with a curated major-token list). For live changes without a restart, set ATOMIC_CHAINS_FILE to a JSON file — edits are detected by a filesystem watcher and applied automatically. See the README for the full schema.
             </p>
           </div>
         </Panel>

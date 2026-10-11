@@ -4,6 +4,7 @@ import { ensureChains } from "@/lib/atomic/chains-config";
 import { entitySummary } from "@/lib/atomic/engine/entities";
 import { activity, holdings, relationshipGraph } from "@/lib/atomic/engine/activity";
 import { onchainFactsForChains } from "@/lib/atomic/onchain/adapter";
+import { liveTokenBalancesForChains, liveTransfersForChains } from "@/lib/atomic/onchain/erc20";
 import { NO_STORE, guardRequest, jsonError, validAddress } from "@/lib/atomic/api/guard";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +20,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ address:
   const chainPool = CHAIN_LIST.map((c) => c.id);
   const entity = entitySummary(address, chainPool);
   const live = await onchainFactsForChains(entity.chains, entity.address);
+  const [livePositions, liveTransfers] = await Promise.all([
+    liveTokenBalancesForChains(entity.chains, entity.address, 3),
+    liveTransfersForChains(entity.chains, entity.address, 3),
+  ]);
 
   return NextResponse.json(
     {
@@ -33,6 +38,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ address:
         proxyImplementation: f!.proxy?.implementation ?? null,
         ownerRenounced: f!.owner?.renounced ?? null,
       })),
+      livePositions: livePositions.filter((p): p is NonNullable<typeof p> => Array.isArray(p) && p.length > 0).flat(),
+      liveTransfers: liveTransfers.filter((t): t is NonNullable<typeof t> => Array.isArray(t) && t.length > 0).flat(),
       holdings: holdings(entity),
       relationships: relationshipGraph(entity, chainPool),
       activity: activity(entity, 20, chainPool),
