@@ -15,13 +15,14 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const live = process.env.ATOMIC_DISABLE_LIVE !== "1";
   return (
     <html lang="en">
       <body className="min-h-screen bg-ink-950 text-mist-bright antialiased">
         <WorkspaceProvider>
           <Sidebar />
           <div className="pl-60">
-            <Topbar />
+            <Topbar liveRpc={live} />
             <main className="mx-auto max-w-7xl px-8 py-8">{children}</main>
             <footer className="border-t border-ink-700 px-8 py-6">
               <p className="text-[11px] text-mist-dim">

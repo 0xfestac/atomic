@@ -2,6 +2,8 @@ import Link from "next/link";
 import { entitySummary } from "@/lib/atomic/engine/entities";
 import { isEvmAddress } from "@/lib/atomic/engine/prng";
 import { securityReport } from "@/lib/atomic/security/checks";
+import { onchainFactsForChains } from "@/lib/atomic/onchain/adapter";
+import { isChainId } from "@/lib/atomic/chains";
 import { Badge, CheckStatusIcon, PageHeader, Panel, RiskBadge, SectionHeader, Stat } from "@/components/ui";
 import { AddressScanForm } from "@/components/security/scan-form";
 
@@ -15,11 +17,14 @@ const CATEGORIES: { id: string; label: string; sub: string }[] = [
   { id: "liquidity", label: "Liquidity", sub: "locks, burn, exit risk" },
 ];
 
-export default async function SecurityPage({ searchParams }: { searchParams: Promise<{ address?: string }> }) {
-  const { address } = await searchParams;
+export default async function SecurityPage({ searchParams }: { searchParams: Promise<{ address?: string; chain?: string }> }) {
+  const { address, chain } = await searchParams;
   const valid = address !== undefined && isEvmAddress(address);
-  const report = valid ? securityReport(address!) : null;
-  const entity = valid ? entitySummary(address!) : null;
+  const subject = valid ? address!.toLowerCase() : null;
+  const entity = subject ? entitySummary(subject) : null;
+  const probeChains = chain && isChainId(chain) ? [chain] : entity?.chains ?? [];
+  const live = subject ? await onchainFactsForChains(probeChains, subject) : [];
+  const report = subject ? securityReport(subject, entity ?? undefined, live) : null;
 
   return (
     <div>
@@ -32,7 +37,7 @@ export default async function SecurityPage({ searchParams }: { searchParams: Pro
       <div className="grid gap-6 lg:grid-cols-3">
         <Panel className="lg:col-span-1">
           <SectionHeader title="Scan a subject" sub="Token, contract, or wallet address" />
-          <AddressScanForm initial={valid ? address : ""} />
+          <AddressScanForm initial={valid ? address : ""} initialChain={isChainId(chain ?? "") ? chain : undefined} />
           <div className="mt-5 space-y-2 border-t border-ink-700 pt-4">
             <div className="label-mono mb-1">Check categories</div>
             {CATEGORIES.map((c) => (
@@ -63,7 +68,13 @@ export default async function SecurityPage({ searchParams }: { searchParams: Pro
               </div>
 
               <Panel>
-                <SectionHeader title={`Audit results · ${report.checks.length} checks`} sub="Generated deterministically — identical input, identical report" action={<RiskBadge level={entity.riskLevel} />} />
+                <SectionHeader
+                  title={`Audit results · ${report.checks.length} checks`}
+                  sub={report.liveChains?.length
+                    ? `Live evidence via ${report.liveChains.join(", ")} public RPC — heuristic checks are deterministic`
+                    : "Heuristic checks — deterministic, identical input yields identical report"}
+                  action={<RiskBadge level={entity.riskLevel} />}
+                />
                 <div className="space-y-2">
                   {report.checks.map((c) => (
                     <div key={c.id} className="flex items-start gap-3 rounded-lg border border-ink-700 bg-ink-800/50 px-4 py-3">
@@ -73,6 +84,7 @@ export default async function SecurityPage({ searchParams }: { searchParams: Pro
                           <span className="text-sm text-mist-bright">{c.title}</span>
                           <span className="font-mono text-[10px] text-mist-dim">{c.id}</span>
                           <Badge>{c.category}</Badge>
+                          {c.source === "onchain" && <Badge tone="cyan">onchain</Badge>}
                           {c.status !== "pass" && c.status !== "info" && <Badge tone={c.status === "fail" ? "red" : "amber"}>severity if failed: {c.severityIfFail}</Badge>}
                         </div>
                         <p className="mt-1 text-xs text-mist">{c.detail}</p>

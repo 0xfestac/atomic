@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useWorkspace } from "@/lib/atomic/workspace";
-import { CONDITION_LABELS, evaluateRules } from "@/lib/atomic/alerts/rules";
+import { CONDITION_LABELS, evaluateRules, isValidWebhookUrl } from "@/lib/atomic/alerts/rules";
 import { isEvmAddress, shortAddress } from "@/lib/atomic/engine/prng";
 import { entitySummary } from "@/lib/atomic/engine/entities";
 import { Badge, Panel, RiskBadge, SectionHeader } from "@/components/ui";
@@ -22,7 +22,8 @@ export function AlertsConsole() {
   const [webhookUrl, setWebhookUrl] = useState("");
 
   const targetValid = isEvmAddress(target);
-  const canCreate = name.trim().length >= 3 && targetValid;
+  const webhookValid = channel !== "webhook" || isValidWebhookUrl(webhookUrl);
+  const canCreate = name.trim().length >= 3 && targetValid && webhookValid;
 
   const events = useMemo(() => (hydrated ? evaluateRules(alertRules) : []), [alertRules, hydrated]);
   const visibleEvents = events.filter((e) => !dismissedEvents.includes(e.id));
@@ -166,7 +167,12 @@ export function AlertsConsole() {
           {channel === "webhook" && (
             <div>
               <label htmlFor="rule-hook" className="label-mono">Webhook URL</label>
-              <input id="rule-hook" className="input mt-1.5 font-mono text-xs" placeholder="https://hooks.example.internal/…" value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} />
+              <input id="rule-hook" className="input mt-1.5 font-mono text-xs" placeholder="https://hooks.example.com/atomic" value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} />
+              {webhookUrl.length > 0 && !webhookValid && (
+                <p className="mt-1.5 text-[11px] text-amber-300">
+                  Public http(s) URLs only — loopback, private ranges, and internal hosts are rejected.
+                </p>
+              )}
             </div>
           )}
           <button className="btn-primary w-full" disabled={!canCreate} onClick={create}>

@@ -17,6 +17,29 @@ export const CONDITION_LABELS: Record<AlertCondition, string> = {
   "flagged-counterparty": "Any flagged-counterparty exposure",
 };
 
+/**
+ * Webhook targets must be public http(s) URLs — loopback, link-local,
+ * private-range, and non-http schemes are rejected at rule creation so a
+ * later delivery worker can never be pointed at internal infrastructure.
+ */
+export function isValidWebhookUrl(raw: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(raw.trim());
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return false;
+  const host = url.hostname.toLowerCase();
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal")) return false;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
+    const [a, b] = host.split(".").map(Number);
+    if (a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a >= 224) return false;
+  }
+  if (host === "[::1]" || host.startsWith("[")) return false;
+  return true;
+}
+
 interface EvaluatedTx {
   valueUsd: number;
   counterparty: string;

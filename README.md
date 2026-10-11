@@ -21,15 +21,17 @@
 ## Architecture
 
 - **Next.js 15 (App Router) + TypeScript + Tailwind** — server components stream engine data; client components own workspace state.
-- **Deterministic data plane** (`src/lib/atomic/engine/`) — every profile, transaction, graph, and report is derived from stable seeds, so results are identical across renders and runs. The demo dataset needs no external APIs; live deployments bind the same interfaces to real indexers (see `/integrations`).
-- **Security engine** (`src/lib/atomic/security/`) — fixed, explainable rules with evidence on every check. No model calls in the scoring path.
+- **Live on-chain layer** (`src/lib/atomic/onchain/`) — keyless JSON-RPC reads over public endpoints (multi-endpoint failover, timeouts, 60s fact cache): address classification, native balances, tx counts, ERC-20 metadata, EIP-1967 proxy detection, `owner()` reads, bytecode selector scans, ENS resolution, and EIP-55 checksums. Pin dedicated endpoints via `ATOMIC_RPC_<CHAIN>` (see `.env.example`) or set `ATOMIC_DISABLE_LIVE=1` for offline runs.
+- **Deterministic data plane** (`src/lib/atomic/engine/`) — every profile, transaction, graph, and report is derived from stable seeds, so results are identical across renders and runs. When live reads succeed they upgrade the view with real chain evidence; when they fail the UI says so and falls back to the demo plane. Live deployments can bind the same interfaces to full indexers (see `/integrations`).
+- **Security engine** (`src/lib/atomic/security/`) — fixed, explainable rules with evidence on every check, labeled `onchain` (live RPC evidence) or `heuristic` (deterministic demo plane). No model calls in the scoring path.
 - **Analyst engine** (`src/lib/atomic/analyst/`) — findings derived from the investigation dataset; an LLM provider may only rephrase, never invent findings.
 - **Workspace state** (`src/lib/atomic/workspace.tsx`) — watchlist, alert rules, staged intents, and integration toggles persist to `localStorage`.
+- **API hardening** (`src/lib/atomic/api/`) — per-IP sliding-window rate limiting, strict input validation, bounded JSON bodies, and uniform `no-store` error responses on every public route.
 
 ## Principles
 
 - **Non-custodial by design.** Actions are prepared as signable EIP-712 intents and executed in the user's own wallet. ATOMIC holds no keys and broadcasts nothing.
-- **Deterministic security checks.** Every pass/warn/fail links to evidence; the same input always yields the same report.
+- **Deterministic security checks.** Every pass/warn/fail links to evidence and its provenance (`onchain` vs `heuristic`); the same input always yields the same report.
 - **No platform token.** ATOMIC introduces no token. Synthetic demo tokens used for vesting analysis are clearly marked.
 
 ## Public API (v1)
@@ -39,10 +41,18 @@ GET  /api/v1/health
 GET  /api/v1/tokens
 GET  /api/v1/entities/{address}
 GET  /api/v1/security/{address}
+GET  /api/v1/resolve?name=vitalik.eth
 POST /api/v1/intents/scan
 ```
 
-Read-only except intent scanning — agents can consume intelligence but never transact through ATOMIC.
+Read-only except intent scanning — agents can consume intelligence but never transact through ATOMIC. All routes are rate limited (default 120 req/min/IP, `Retry-After` on 429) and return `cache-control: no-store`.
+
+## Production deployment
+
+1. `pnpm install && pnpm build && pnpm start` (or deploy to any Node host / Vercel).
+2. Set `ATOMIC_RPC_<CHAIN>` env vars to dedicated endpoints (Alchemy, Infura, self-hosted) — public endpoints are rate limited by their operators.
+3. Optionally tune `ATOMIC_RATE_LIMIT_RPM`.
+4. Front the app with HTTPS; security headers (`X-Frame-Options`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`, COOP) are set by `next.config.ts`.
 
 ## Development
 

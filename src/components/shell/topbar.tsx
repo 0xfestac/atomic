@@ -3,9 +3,10 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { isEvmAddress } from "@/lib/atomic/engine/prng";
+import { isEnsName } from "@/lib/atomic/onchain/name";
 import { findEntities } from "@/lib/atomic/engine/entities";
 
-export function Topbar() {
+export function Topbar({ liveRpc = true }: { liveRpc?: boolean }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -21,7 +22,7 @@ export function Topbar() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const suggestions = query.trim().length >= 2 && !isEvmAddress(query) ? findEntities(query).slice(0, 4) : [];
+  const suggestions = query.trim().length >= 2 && !isEvmAddress(query) && !isEnsName(query) ? findEntities(query).slice(0, 4) : [];
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,6 +30,9 @@ export function Topbar() {
     if (!q) return;
     if (isEvmAddress(q)) {
       router.push(`/investigate/${q.toLowerCase()}`);
+      setQuery("");
+    } else if (isEnsName(q)) {
+      router.push(`/investigate/${encodeURIComponent(q.toLowerCase())}`);
       setQuery("");
     }
   };
@@ -68,8 +72,8 @@ export function Topbar() {
         <span className="hidden rounded-full border border-ink-600 px-3 py-1 font-mono text-[11px] text-mist-dim md:inline">
           workspace: research-desk
         </span>
-        <span className="rounded-full border border-amber-900/60 bg-amber-950/40 px-3 py-1 font-mono text-[11px] text-amber-300">
-          demo data
+        <span className="rounded-full border border-emerald-900/60 bg-emerald-950/40 px-3 py-1 font-mono text-[11px] text-emerald-300">
+          {liveRpc ? "live on-chain" : "demo data"}
         </span>
       </div>
     </header>

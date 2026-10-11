@@ -109,6 +109,8 @@ export interface SecurityCheck {
   severityIfFail: RiskLevel;
   detail: string;
   evidence: string;
+  /** onchain = evaluated against live RPC reads; heuristic = deterministic demo plane */
+  source?: "onchain" | "heuristic";
 }
 
 export interface SecurityReport {
@@ -118,6 +120,8 @@ export interface SecurityReport {
   score: number;
   checks: SecurityCheck[];
   generatedAt: string;
+  /** chains with live on-chain reads backing this report, when any */
+  liveChains?: string[];
 }
 
 export interface Finding {

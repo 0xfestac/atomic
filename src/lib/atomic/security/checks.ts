@@ -3,12 +3,16 @@ import { CHAINS } from "../chains";
 import { knownEntity } from "../engine/entities";
 import { Rng, DATA_NOW } from "../engine/prng";
 import { tokenByAddress } from "../engine/tokens";
+import type { OnchainFacts } from "../onchain/adapter";
+import { formatWei } from "../onchain/adapter";
 
 /**
  * Deterministic security analysis. Every check is a fixed, explainable
- * rule evaluated against the stable dataset — no model calls, no hidden
- * randomness. Production deployments register additional check providers
- * under the same interface.
+ * rule evaluated against stable inputs — no model calls, no hidden
+ * randomness. When live on-chain facts are supplied (public RPC reads),
+ * a subset of checks upgrades to genuine chain evidence and is labeled
+ * `onchain`; the rest remain labeled `heuristic`. Production deployments
+ * register additional check providers under the same interface.
  */
 
 interface CheckSpec {
@@ -200,7 +204,11 @@ const SPECS: CheckSpec[] = [
 
 const WEIGHTS: Record<SecurityCheck["status"], number> = { pass: 0, info: 0, warn: 9, fail: 26 };
 
-export function securityReport(rawAddress: string, entity?: EntitySummary): SecurityReport {
+export function securityReport(
+  rawAddress: string,
+  entity?: EntitySummary,
+  live?: (OnchainFacts | null)[],
+): SecurityReport {
   const address = rawAddress.toLowerCase();
   const ent = entity ?? undefined;
   const known = knownEntity(address);
@@ -221,8 +229,17 @@ export function securityReport(rawAddress: string, entity?: EntitySummary): Secu
       severityIfFail: spec.severityIfFail,
       detail: result.detail,
       evidence: result.evidence,
+      source: "heuristic" as const,
     };
   });
+
+  // Live on-chain evidence overrides heuristic counterparts where available.
+  const facts = (live ?? []).filter((f): f is OnchainFacts => !!f?.ok);
+  const liveChains: string[] = [];
+  if (facts.length > 0) {
+    liveChains.push(...facts.map((f) => f.chain));
+    applyLiveEvidence(checks, facts);
+  }
 
   const score = Math.max(0, Math.min(100, 100 - checks.reduce((acc, c) => acc + WEIGHTS[c.status], 0)));
   const grade = score >= 88 ? "A" : score >= 72 ? "B" : score >= 55 ? "C" : score >= 35 ? "D" : "F";
@@ -234,7 +251,111 @@ export function securityReport(rawAddress: string, entity?: EntitySummary): Secu
     score: Math.round(score),
     checks,
     generatedAt: new Date(DATA_NOW).toISOString(),
+    ...(liveChains.length > 0 ? { liveChains: [...new Set(liveChains)] } : {}),
   };
+}
+
+interface CheckPatch {
+  status: SecurityCheck["status"];
+  detail: string;
+  evidence: string;
+}
+
+/** Replace heuristic checks with live on-chain evidence, in place. */
+function applyLiveEvidence(checks: SecurityCheck[], facts: OnchainFacts[]): void {
+  const upsert = (id: string, title: string, category: SecurityCheck["category"], patch: CheckPatch | null): void => {
+    if (!patch) return;
+    const idx = checks.findIndex((c) => c.id === id);
+    if (idx >= 0) Object.assign(checks[idx], patch, { source: "onchain" });
+    else checks.push({ id, title, category, severityIfFail: "medium", source: "onchain", ...patch });
+  };
+
+  const primary = facts[0];
+
+  // CHN-01: genuine on-chain presence & classification
+  if (primary) {
+    const cls = primary.classification;
+    const chainName = CHAINS[primary.chain]?.name ?? primary.chain;
+    if (!cls) {
+      upsert("CHN-01", "On-chain verification", "contract", {
+        status: "info",
+        detail: `Live state for ${chainName} unavailable; report fell back to heuristic checks.`,
+        evidence: "rpc:unreachable",
+      });
+    } else if (cls.isContract) {
+      const size = primary.bytecode?.codeSizeBytes ?? cls.codeSizeBytes;
+      upsert("CHN-01", "On-chain verification", "contract", {
+        status: "info",
+        detail: `Live read on ${chainName}: deployed contract, ${size.toLocaleString()} bytes of bytecode.`,
+        evidence: `eth_getCode:${primary.chain}:size=${size}`,
+      });
+    } else {
+      const holding = primary.nativeBalanceWei !== null
+        ? ` holding ${formatWei(primary.nativeBalanceWei, 18)} ${CHAINS[primary.chain]?.nativeSymbol ?? ""}`.trimEnd()
+        : "";
+      const delegation = cls.delegation
+        ? `; EIP-7702 delegation active to ${cls.delegation.delegate.slice(0, 10)}… — the EOA's calls execute that contract's code`
+        : "";
+      upsert("CHN-01", "On-chain verification", "contract", {
+        status: cls.delegation ? "warn" : "info",
+        detail: `Live read on ${chainName}: externally-owned account${holding}${delegation}.`,
+        evidence: cls.delegation
+          ? `eip7702:delegate=${cls.delegation.delegate.toLowerCase()}`
+          : `eth_getBalance:${primary.chain}=${primary.nativeBalanceWei?.toString() ?? "n/a"}`,
+      });
+    }
+  }
+
+  // UPG-01: real EIP-1967 proxy slot read
+  const proxyFact = facts.find((f) => f.proxy !== null);
+  if (proxyFact?.proxy) {
+    upsert("UPG-01", "Proxy upgradeability", "contract", {
+      status: "warn",
+      detail: `EIP-1967 implementation slot is set — logic can be swapped by the admin (implementation ${proxyFact.proxy.implementation.slice(0, 10)}…).`,
+      evidence: `eip1967:impl=${proxyFact.proxy.implementation.toLowerCase()}`,
+    });
+  } else if (facts.some((f) => f.classification?.isContract && f.proxy === null)) {
+    upsert("UPG-01", "Proxy upgradeability", "contract", {
+      status: "pass",
+      detail: "EIP-1967 implementation slot is empty on the live chain — no standard upgradeable proxy detected.",
+      evidence: `eip1967:slot-unset:${primary.chain}`,
+    });
+  }
+
+  // OWN-01: real owner() read
+  const ownerFact = facts.find((f) => f.owner !== null);
+  if (ownerFact?.owner) {
+    upsert("OWN-01", "Ownership & admin keys", "ownership", {
+      status: ownerFact.owner.renounced ? "pass" : "warn",
+      detail: ownerFact.owner.renounced
+        ? "Live owner() returned the zero address — privileges renounced on-chain."
+        : `Live owner() is an active address (${ownerFact.owner.owner.slice(0, 10)}…) — admin keys can modify parameters.`,
+      evidence: `owner()=${ownerFact.owner.owner.toLowerCase()}`,
+    });
+  }
+
+  // OWN-02 / BEH-01: real bytecode selector scan
+  const bytecodeFact = facts.find((f) => f.bytecode !== null);
+  if (bytecodeFact?.bytecode) {
+    const scan = bytecodeFact.bytecode;
+    const mint = scan.selectors.filter((s) => s.label === "mint" || s.label === "mint(uint256)");
+    upsert("OWN-02", "Mint authority", "ownership", {
+      status: mint.length > 0 ? "fail" : "pass",
+      detail: mint.length > 0
+        ? `Mint selector (${mint.map((m) => m.label).join(", ")}) found in deployed bytecode — supply can potentially be inflated.`
+        : "No known mint selectors found in deployed bytecode.",
+      evidence: mint.length > 0 ? `bytecode:selector=${mint[0].selector}` : `bytecode:scan-clean:${scan.codeSizeBytes}b`,
+    });
+
+    const freeze = scan.selectors.filter((s) => s.label === "blacklist" || s.label === "pause");
+    upsert("BEH-01", "Blacklist / freeze functions", "behavior", {
+      status: freeze.length > 0 ? "warn" : "pass",
+      detail: freeze.length > 0
+        ? `Freeze surface (${freeze.map((m) => m.label).join(", ")}) found in deployed bytecode — holders or transfers can potentially be frozen.`
+        : "No blacklist or pause selectors found in deployed bytecode.",
+      evidence: freeze.length > 0 ? `bytecode:selector=${freeze[0].selector}` : `bytecode:scan-clean:${scan.codeSizeBytes}b`,
+    });
+  }
 }
 
 export interface TxScanResult {

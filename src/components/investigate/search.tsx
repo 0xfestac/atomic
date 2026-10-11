@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { isEvmAddress } from "@/lib/atomic/engine/prng";
+import { isEnsName } from "@/lib/atomic/onchain/name";
 import { KNOWN_ENTITIES } from "@/lib/atomic/engine/entities";
 import { RiskBadge } from "@/components/ui";
 import Link from "next/link";
@@ -10,14 +11,17 @@ import Link from "next/link";
 export function InvestigateSearch() {
   const router = useRouter();
   const [value, setValue] = useState("");
-  const valid = isEvmAddress(value);
+  const trimmed = value.trim();
+  const valid = isEvmAddress(trimmed) || isEnsName(trimmed);
 
   return (
     <div>
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (valid) router.push(`/investigate/${value.trim().toLowerCase()}`);
+          if (!valid) return;
+          const q = trimmed.toLowerCase();
+          router.push(`/investigate/${isEvmAddress(q) ? q : encodeURIComponent(q)}`);
         }}
         className="panel panel-pad"
       >
@@ -28,7 +32,7 @@ export function InvestigateSearch() {
           <input
             id="addr"
             className="input font-mono"
-            placeholder="0x…"
+            placeholder="0x… or name.eth"
             value={value}
             onChange={(e) => setValue(e.target.value)}
             aria-label="Address to investigate"
@@ -38,7 +42,7 @@ export function InvestigateSearch() {
           </button>
         </div>
         <p className="mt-2 text-xs text-mist-dim">
-          Paste any EVM address. ATOMIC derives a deterministic profile — or connect a live indexer in Integrations.
+          Paste any EVM address or an ENS name (.eth, resolved live on mainnet). Profiles blend live chain reads with deterministic enrichment.
         </p>
       </form>
 

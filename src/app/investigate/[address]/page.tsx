@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { CHAINS } from "@/lib/atomic/chains";
 import { activity, nfts } from "@/lib/atomic/engine/activity";
@@ -7,9 +7,12 @@ import { entitySummary } from "@/lib/atomic/engine/entities";
 import { isEvmAddress, formatUsd } from "@/lib/atomic/engine/prng";
 import { analystReport } from "@/lib/atomic/analyst/report";
 import { securityReport } from "@/lib/atomic/security/checks";
+import { onchainFactsForChains, resolveEns } from "@/lib/atomic/onchain/adapter";
+import { isEnsName } from "@/lib/atomic/onchain/name";
 import { Badge, CheckStatusIcon, PageHeader, Panel, RiskBadge, RiskGauge, SectionHeader } from "@/components/ui";
 import { ActivityTable, FlagsPanel, HoldingsTable, RelationshipGraphView } from "@/components/investigate/entity-view";
 import { EntityActions } from "@/components/investigate/entity-actions";
+import { OnchainPanel } from "@/components/investigate/onchain-panel";
 
 interface PageProps {
   params: Promise<{ address: string }>;
@@ -25,20 +28,30 @@ const TABS = [
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { address } = await params;
+  if (!isEvmAddress(address)) return { title: "Investigate" };
   const entity = entitySummary(address);
   return { title: entity.label ?? `Investigate ${address.slice(0, 10)}…` };
 }
 
 export default async function EntityPage({ params, searchParams }: PageProps) {
-  const { address } = await params;
+  const { address: raw } = await params;
   const { tab } = await searchParams;
-  if (!isEvmAddress(address)) notFound();
+
+  // ENS names resolve server-side, then canonicalize to the address URL.
+  if (!isEvmAddress(raw)) {
+    if (!isEnsName(raw)) notFound();
+    const resolved = await resolveEns(raw);
+    if (!resolved) notFound();
+    redirect(`/investigate/${resolved.toLowerCase()}`);
+  }
+  const address = raw.toLowerCase();
 
   const entity = entitySummary(address);
   const activeTab = TABS.some((t) => t.id === tab) ? tab! : "overview";
   const txs = activity(entity, 40);
   const report = analystReport(entity);
-  const security = securityReport(address, entity);
+  const live = await onchainFactsForChains(entity.chains, address);
+  const security = securityReport(address, entity, live);
   const nftPositions = nfts(entity);
   const ageDays = Math.max(1, Math.round((Date.UTC(2026, 9, 1) - new Date(entity.firstSeen).getTime()) / 86400_000));
   const inflow = txs.filter((t) => t.type === "receive").reduce((a, t) => a + t.valueUsd, 0);
@@ -76,6 +89,8 @@ export default async function EntityPage({ params, searchParams }: PageProps) {
             <SectionHeader title="Risk flags" sub="Deterministic behavioral & registry signals" />
             <FlagsPanel entity={entity} />
           </Panel>
+
+          <OnchainPanel facts={live} />
 
           <div className="grid gap-4 sm:grid-cols-3">
             <Panel><div className="label-mono">Inflow 90d</div><div className="mt-1.5 font-mono text-lg text-emerald-400">{formatUsd(inflow)}</div></Panel>
@@ -146,7 +161,7 @@ export default async function EntityPage({ params, searchParams }: PageProps) {
             <Panel>
               <SectionHeader
                 title={`Security audit · grade ${security.grade}`}
-                sub={`Deterministic checks · score ${security.score}/100 · subject ${entity.address.slice(0, 12)}…`}
+                sub={`Score ${security.score}/100 · ${security.liveChains?.length ? `live evidence via ${security.liveChains.map((c) => CHAINS[c as keyof typeof CHAINS]?.name ?? c).join(", ")} public RPC · remaining checks heuristic` : "heuristic checks · deterministic"} · subject ${entity.address.slice(0, 12)}…`}
               />
               <div className="space-y-2">
                 {security.checks.map((c) => (
@@ -157,6 +172,7 @@ export default async function EntityPage({ params, searchParams }: PageProps) {
                         <span className="text-sm text-mist-bright">{c.title}</span>
                         <span className="font-mono text-[10px] text-mist-dim">{c.id}</span>
                         <Badge>{c.category}</Badge>
+                        {c.source === "onchain" && <Badge tone="cyan">onchain</Badge>}
                       </div>
                       <p className="mt-1 text-xs text-mist">{c.detail}</p>
                       <p className="mt-1 font-mono text-[11px] text-mist-dim">evidence: {c.evidence}</p>
