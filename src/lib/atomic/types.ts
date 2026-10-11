@@ -1,21 +1,31 @@
-export type ChainId =
-  | "ethereum"
-  | "base"
-  | "arbitrum"
-  | "optimism"
-  | "polygon"
-  | "bnb"
-  | "avalanche";
+/**
+ * Chain identifiers are configuration-driven: operators add or patch
+ * networks via ATOMIC_CHAINS without code changes, so ChainId is an
+ * opaque slug ("ethereum", "zksync-era", …) resolved through the
+ * registry in lib/atomic/chains.ts.
+ */
+export type ChainId = string;
 
 export interface Chain {
   id: ChainId;
   name: string;
   short: string;
   color: string;
-  explorer: string;
+  /** EIP-155 chain id — binds typed-data signatures to the target network */
+  evmChainId: number;
+  /** explorer base URL, or null when the network has none configured */
+  explorer: string | null;
   nativeSymbol: string;
+  /** ordered JSON-RPC endpoints; the first reachable endpoint serves reads */
+  rpc: string[];
+  /** false → demo-plane only: the platform never dials this chain */
+  live: boolean;
   avgGasGwei: number;
   finalitySec: number;
+  /** builtin = ships with the platform; config = operator-supplied */
+  source: "builtin" | "config";
+  /** true when ATOMIC_RPC_<ID> replaced the default endpoint list */
+  rpcOverridden: boolean;
 }
 
 export type EntityType = "wallet" | "contract" | "token";

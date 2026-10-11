@@ -34,10 +34,49 @@
 - **Deterministic security checks.** Every pass/warn/fail links to evidence and its provenance (`onchain` vs `heuristic`); the same input always yields the same report.
 - **No platform token.** ATOMIC introduces no token. Synthetic demo tokens used for vesting analysis are clearly marked.
 
+## Configuring chains
+
+Networks are **configuration, not code**. The registry ships with seven built-in EVM chains (Ethereum, Base, Arbitrum One, OP Mainnet, Polygon PoS, BNB Chain, Avalanche) and operators extend it at startup via environment variables — no code changes, no redeploy of logic:
+
+```bash
+# Add a network (new id) or patch a built-in (existing id) — JSON array.
+# Required for new chains: id, name, evmChainId, nativeSymbol, rpc.
+ATOMIC_CHAINS='[{
+  "id": "zksync-era",
+  "name": "zkSync Era",
+  "evmChainId": 324,
+  "nativeSymbol": "ETH",
+  "rpc": ["https://mainnet.era.zksync.io", "https://rpc.ankr.com/zksync_era"],
+  "explorer": "https://explorer.zksync.io",
+  "short": "ZK",
+  "color": "#8c8dfc"
+}]'
+
+# Replace endpoints per chain — comma-separated for failover.
+# Dashes in ids map to underscores: "zksync-era" → ATOMIC_RPC_ZKSYNC_ERA
+ATOMIC_RPC_ETHEREUM=https://your-node.example.com/v3/key
+ATOMIC_RPC_ZKSYNC_ERA=https://primary.example.com,https://backup.example.com
+
+# Remove chains (comma-separated ids)
+ATOMIC_CHAINS_DISABLED=avalanche
+
+# Optional per-chain flags in ATOMIC_CHAINS entries:
+#   live: false        → demo-plane only; ATOMIC never dials the chain
+#   avgGasGwei, finalitySec, short, color
+```
+
+Rules enforced by the registry (`src/lib/atomic/chains.ts`):
+
+- **EIP-155 uniqueness** — two chains cannot claim the same `evmChainId`; typed-data signatures are bound to the real chain id, so a collision would mean mis-signed intents. Colliding entries are dropped with a warning.
+- **Fail-safe startup** — invalid entries (bad id, missing fields, unusable endpoints) are skipped with a warning; a config typo can never take the platform down. Warnings appear in server logs, on `/integrations`, and via the API.
+- **Honest provenance** — the active registry (with source `builtin`/`config`, endpoint counts, override flags, and per-chain health) is machine-readable at `GET /api/v1/chains`. Raw endpoint URLs are never exposed — they routinely embed provider keys.
+- **Deterministic demo plane** — engine-sampled profiles always use the built-in chain set, so server/client rendering stays identical no matter which chains operators add. Added chains work for live reads, security probes, health, and intent targets immediately.
+
 ## Public API (v1)
 
 ```
 GET  /api/v1/health
+GET  /api/v1/chains
 GET  /api/v1/tokens
 GET  /api/v1/entities/{address}
 GET  /api/v1/security/{address}
@@ -50,7 +89,7 @@ Read-only except intent scanning — agents can consume intelligence but never t
 ## Production deployment
 
 1. `pnpm install && pnpm build && pnpm start` (or deploy to any Node host / Vercel).
-2. Set `ATOMIC_RPC_<CHAIN>` env vars to dedicated endpoints (Alchemy, Infura, self-hosted) — public endpoints are rate limited by their operators.
+2. Configure your chain registry — set `ATOMIC_RPC_<CHAIN>` to dedicated endpoints (Alchemy, Infura, self-hosted; public endpoints are rate limited by their operators) and add networks with `ATOMIC_CHAINS` (see [Configuring chains](#configuring-chains)).
 3. Optionally tune `ATOMIC_RATE_LIMIT_RPM`.
 4. Front the app with HTTPS; security headers (`X-Frame-Options`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`, COOP) are set by `next.config.ts`.
 

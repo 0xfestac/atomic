@@ -1,5 +1,5 @@
 import type { AnalystReport, EntitySummary, Finding } from "../types";
-import { CHAINS } from "../chains";
+import { chainName } from "../chains";
 import { holdings, relationshipGraph } from "../engine/activity";
 import { knownEntity } from "../engine/entities";
 import { DATA_NOW, formatUsd, shortAddress } from "../engine/prng";
@@ -94,7 +94,7 @@ export function analystReport(entity: EntitySummary): AnalystReport {
     confidence: Math.max(38, Math.min(94, 60 + Math.min(graph.edges.length, 12) * 2 - findings.filter((f) => f.severity === "critical").length * 8)),
     sources: [
       "ATOMIC deterministic demo dataset",
-      ...entity.chains.map((c) => `${CHAINS[c].name} indexer (demo)`),
+      ...entity.chains.map((c) => `${chainName(c)} indexer (demo)`),
       "risk registries (demo)",
     ],
     generatedAt: new Date(DATA_NOW).toISOString(),
@@ -119,7 +119,7 @@ function buildHeadline(entity: EntitySummary, findings: Finding[], label: string
 
 function buildNarrative(entity: EntitySummary, findings: Finding[], grade: string, positionCount: number, edgeCount: number): string[] {
   const name = entity.label ?? shortAddress(entity.address);
-  const chains = entity.chains.map((c) => CHAINS[c].name).join(", ");
+  const chains = entity.chains.map((c) => chainName(c)).join(", ");
   const lines: string[] = [];
 
   lines.push(

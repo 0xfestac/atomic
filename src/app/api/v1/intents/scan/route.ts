@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { scanIntentParams } from "@/lib/atomic/security/checks";
-import { CHAINS } from "@/lib/atomic/chains";
-import { BodyTooLarge, NO_STORE, guardRequest, jsonError, readJsonBody, validAddress, validChain } from "@/lib/atomic/api/guard";
+import { isChainId } from "@/lib/atomic/chains";
+import { BodyTooLarge, NO_STORE, guardRequest, jsonError, readJsonBody, validAddress } from "@/lib/atomic/api/guard";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +25,7 @@ export async function POST(req: Request) {
 
   const { chain, to, kind, amount, slippagePct, inputToken } = (body ?? {}) as Record<string, unknown>;
 
-  if (!validChain(chain, Object.keys(CHAINS))) return jsonError("unknown chain", 400);
+  if (typeof chain !== "string" || !isChainId(chain)) return jsonError("unknown chain", 400);
   if (!validAddress(to)) return jsonError("invalid recipient", 400);
   if (typeof kind !== "string" || !(KINDS as readonly string[]).includes(kind)) {
     return jsonError("invalid kind", 400);

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { CHAIN_LIST } from "@/lib/atomic/chains";
+import type { Chain } from "@/lib/atomic/types";
 import { TOKENS } from "@/lib/atomic/engine/tokens";
 import { isEvmAddress } from "@/lib/atomic/engine/prng";
 import { stageIntent } from "@/lib/atomic/intents/builder";
@@ -95,10 +96,10 @@ function IntentCard({ intent }: { intent: StagedIntent }) {
   );
 }
 
-export function IntentConsole({ presetTo }: { presetTo: string }) {
+export function IntentConsole({ presetTo, chains = CHAIN_LIST }: { presetTo: string; chains?: Chain[] }) {
   const { stagedIntents, addIntent } = useWorkspace();
   const [kind, setKind] = useState<IntentKind>("swap");
-  const [chain, setChain] = useState(CHAIN_LIST[1].id);
+  const [chain, setChain] = useState(chains.find((c) => c.id === "base")?.id ?? chains[0]?.id ?? "ethereum");
   const [to, setTo] = useState(presetTo);
   const [inputToken, setInputToken] = useState("USDC");
   const [outputToken, setOutputToken] = useState("WETH");
@@ -112,19 +113,22 @@ export function IntentConsole({ presetTo }: { presetTo: string }) {
 
   const live = useMemo(() => {
     if (!canBuild) return null;
-    return stageIntent({
-      kind,
-      chain,
-      from: OPERATOR,
-      to: to.trim().toLowerCase(),
-      inputToken: kind === "contract-call" ? undefined : inputToken,
-      outputToken: kind === "swap" ? outputToken : undefined,
-      amount: kind === "contract-call" ? undefined : amountNum,
-      slippagePct: kind === "swap" ? Number(slippage) : undefined,
-      memo,
-    });
+    return stageIntent(
+      {
+        kind,
+        chain,
+        from: OPERATOR,
+        to: to.trim().toLowerCase(),
+        inputToken: kind === "contract-call" ? undefined : inputToken,
+        outputToken: kind === "swap" ? outputToken : undefined,
+        amount: kind === "contract-call" ? undefined : amountNum,
+        slippagePct: kind === "swap" ? Number(slippage) : undefined,
+        memo,
+      },
+      chains,
+    );
     // recompute on field change — pure function, cheap
-  }, [kind, chain, to, inputToken, outputToken, amountNum, slippage, memo, canBuild]);
+  }, [kind, chain, to, inputToken, outputToken, amountNum, slippage, memo, canBuild, chains]);
 
   const active = stagedIntents.filter((i) => i.state !== "discarded");
 
@@ -153,7 +157,7 @@ export function IntentConsole({ presetTo }: { presetTo: string }) {
             <div>
               <label htmlFor="intent-chain" className="label-mono">Chain</label>
               <select id="intent-chain" className="input mt-1.5" value={chain} onChange={(e) => setChain(e.target.value as typeof chain)}>
-                {CHAIN_LIST.map((c) => (
+                {chains.map((c) => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
-import { CHAINS } from "@/lib/atomic/chains";
+import { chainName } from "@/lib/atomic/chains";
 import { activity, nfts } from "@/lib/atomic/engine/activity";
 import { entitySummary } from "@/lib/atomic/engine/entities";
 import { isEvmAddress, formatUsd } from "@/lib/atomic/engine/prng";
@@ -62,7 +62,7 @@ export default async function EntityPage({ params, searchParams }: PageProps) {
       <PageHeader
         eyebrow="Investigate · Entity"
         title={entity.label ?? `${address.slice(0, 10)}…${address.slice(-6)}`}
-        sub={`${entity.type === "contract" ? "Smart contract" : "Wallet"} · active on ${entity.chains.map((c) => CHAINS[c].name).join(", ")}`}
+        sub={`${entity.type === "contract" ? "Smart contract" : "Wallet"} · active on ${entity.chains.map((c) => chainName(c)).join(", ")}`}
         action={<EntityActions address={entity.address} />}
       />
 
@@ -161,7 +161,7 @@ export default async function EntityPage({ params, searchParams }: PageProps) {
             <Panel>
               <SectionHeader
                 title={`Security audit · grade ${security.grade}`}
-                sub={`Score ${security.score}/100 · ${security.liveChains?.length ? `live evidence via ${security.liveChains.map((c) => CHAINS[c as keyof typeof CHAINS]?.name ?? c).join(", ")} public RPC · remaining checks heuristic` : "heuristic checks · deterministic"} · subject ${entity.address.slice(0, 12)}…`}
+                sub={`Score ${security.score}/100 · ${security.liveChains?.length ? `live evidence via ${security.liveChains.map((c) => chainName(c)).join(", ")} public RPC · remaining checks heuristic` : "heuristic checks · deterministic"} · subject ${entity.address.slice(0, 12)}…`}
               />
               <div className="space-y-2">
                 {security.checks.map((c) => (

@@ -79,10 +79,6 @@ export function validAddress(value: unknown): value is string {
   return typeof value === "string" && isEvmAddress(value);
 }
 
-export function validChain(value: unknown, chains: string[]): value is string {
-  return typeof value === "string" && chains.includes(value);
-}
-
 /** Read+parse a JSON body with a hard size cap. */
 export async function readJsonBody(req: Request, maxBytes = 10_000): Promise<unknown> {
   const declared = Number(req.headers.get("content-length") ?? "0");

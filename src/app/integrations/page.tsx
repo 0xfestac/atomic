@@ -1,8 +1,11 @@
-import { CHAIN_LIST } from "@/lib/atomic/chains";
+import { CHAIN_LIST, CHAIN_WARNINGS } from "@/lib/atomic/chains";
+import { chainHealth, liveEnabled } from "@/lib/atomic/onchain/rpc";
 import { Badge, PageHeader, Panel, SectionHeader } from "@/components/ui";
 import { IntegrationToggle } from "@/components/integrations/toggle";
 
 export const metadata = { title: "Integrations" };
+
+export const dynamic = "force-dynamic";
 
 const DATA_PROVIDERS = [
   { id: "etherscan", name: "Etherscan / Explorers", desc: "Verified source, ABI, and receipt data per chain." },
@@ -17,14 +20,31 @@ const AI_PROVIDERS = [
 ];
 
 const API_ENDPOINTS = [
-  { method: "GET", path: "/api/v1/health", desc: "Service heartbeat" },
+  { method: "GET", path: "/api/v1/health", desc: "Service heartbeat + primary chain probe" },
+  { method: "GET", path: "/api/v1/chains", desc: "Configured chain registry (adds, patches, EIP-155 ids)" },
   { method: "GET", path: "/api/v1/tokens", desc: "Token catalog (demo snapshot)" },
   { method: "GET", path: "/api/v1/entities/{address}", desc: "Entity profile, holdings, relationships" },
   { method: "GET", path: "/api/v1/security/{address}", desc: "Deterministic security report" },
   { method: "POST", path: "/api/v1/intents/scan", desc: "Pre-flight scan of intent parameters" },
 ];
 
-export default function IntegrationsPage() {
+const ADD_CHAIN_SNIPPET = `ATOMIC_CHAINS='[{
+  "id": "zksync-era",
+  "name": "zkSync Era",
+  "evmChainId": 324,
+  "nativeSymbol": "ETH",
+  "rpc": ["https://mainnet.era.zksync.io"],
+  "explorer": "https://explorer.zksync.io"
+}]'`;
+
+export default async function IntegrationsPage() {
+  // Health for every configured chain, probed in parallel (30s cache).
+  const liveChains = CHAIN_LIST.filter((c) => c.live);
+  const health = liveEnabled()
+    ? await Promise.all(liveChains.map((c) => chainHealth(c.id)))
+    : [];
+  const healthById = new Map(health.map((h) => [h.chain, h]));
+
   return (
     <div>
       <PageHeader
@@ -35,17 +55,57 @@ export default function IntegrationsPage() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Panel>
-          <SectionHeader title="Chains" sub="Indexed networks (always on)" />
+          <SectionHeader
+            title="Chains"
+            sub={`${CHAIN_LIST.length} configured networks · EIP-155 ids enforced unique · endpoint failover per chain`}
+          />
           <div className="space-y-2">
-            {CHAIN_LIST.map((c) => (
-              <div key={c.id} className="flex items-center justify-between rounded-lg border border-ink-700 bg-ink-800/50 px-4 py-2.5">
-                <div className="flex items-center gap-2.5">
-                  <span className="h-2 w-2 rounded-full" style={{ background: c.color }} />
-                  <span className="text-sm text-mist-bright">{c.name}</span>
+            {CHAIN_LIST.map((c) => {
+              const h = healthById.get(c.id);
+              return (
+                <div key={c.id} className="rounded-lg border border-ink-700 bg-ink-800/50 px-4 py-2.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: c.color }} />
+                      <span className="truncate text-sm text-mist-bright">{c.name}</span>
+                      <span className="shrink-0 font-mono text-[10px] text-mist-dim">chain {c.evmChainId}</span>
+                      {c.source === "config" && <Badge tone="cyan">config</Badge>}
+                      {!c.live && <Badge tone="amber">demo-only</Badge>}
+                    </div>
+                    {c.live && h && (
+                      h.reachable ? (
+                        <Badge tone="green">#{h.blockNumber?.toLocaleString()}</Badge>
+                      ) : (
+                        <Badge tone="red">rpc unreachable</Badge>
+                      )
+                    )}
+                    {c.live && !h && <Badge tone="amber">live reads off</Badge>}
+                    {!c.live && <Badge>off</Badge>}
+                  </div>
+                  <p className="mt-1 font-mono text-[10px] text-mist-dim">
+                    {c.rpc.length} endpoint{c.rpc.length === 1 ? "" : "s"} {c.rpcOverridden ? "· operator override" : "· public defaults"}
+                    {h?.checkedAt ? ` · probed ${h.checkedAt.slice(11, 19)}Z` : ""}
+                  </p>
                 </div>
-                <Badge tone="green">indexed</Badge>
-              </div>
-            ))}
+              );
+            })}
+          </div>
+          {CHAIN_WARNINGS.length > 0 && (
+            <div className="mt-3 rounded-lg border border-amber-900/60 bg-amber-950/20 px-4 py-3">
+              <p className="text-xs font-medium text-amber-300">{CHAIN_WARNINGS.length} chain config warning{CHAIN_WARNINGS.length > 1 ? "s" : ""}</p>
+              <ul className="mt-1 space-y-0.5">
+                {CHAIN_WARNINGS.map((w, i) => (
+                  <li key={i} className="font-mono text-[11px] text-amber-200/80">{w}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div className="mt-4 border-t border-ink-700 pt-4">
+            <SectionHeader title="Add a chain" sub="Registry changes are environment config — no code changes" />
+            <pre className="overflow-auto rounded-lg border border-ink-700 bg-ink-900 px-4 py-3 font-mono text-[11px] leading-relaxed text-mist">{ADD_CHAIN_SNIPPET}</pre>
+            <p className="mt-2 text-[11px] leading-relaxed text-mist-dim">
+              New ids append a network; existing ids patch the built-in. ATOMIC_RPC_&lt;ID&gt; replaces endpoints (comma-separated), ATOMIC_CHAINS_DISABLED removes entries. See the README for the full schema.
+            </p>
           </div>
         </Panel>
 

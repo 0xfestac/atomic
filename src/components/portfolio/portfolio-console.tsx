@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import { useWorkspace } from "@/lib/atomic/workspace";
 import { entitySummary } from "@/lib/atomic/engine/entities";
 import { holdings, nfts } from "@/lib/atomic/engine/activity";
-import { CHAINS } from "@/lib/atomic/chains";
+import { chainOrNull } from "@/lib/atomic/chains";
 import { formatAmount, formatUsd } from "@/lib/atomic/engine/prng";
 import { EmptyState, Panel, RiskBadge, SectionHeader, Sparkline, Stat } from "@/components/ui";
 import { priceSeries } from "@/lib/atomic/engine/tokens";
@@ -92,7 +92,7 @@ export function PortfolioConsole() {
           <div className="space-y-3">
             {chainExposure.map(([chainId, usd]) => {
               const pct = (usd / Math.max(1, totalUsd)) * 100;
-              const meta = CHAINS[chainId as keyof typeof CHAINS];
+              const meta = chainOrNull(chainId);
               return (
                 <div key={chainId}>
                   <div className="mb-1 flex justify-between text-xs">

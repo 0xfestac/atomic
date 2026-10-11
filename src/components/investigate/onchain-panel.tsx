@@ -1,4 +1,4 @@
-import { CHAINS } from "@/lib/atomic/chains";
+import { chainName, chainOrNull } from "@/lib/atomic/chains";
 import { formatWei } from "@/lib/atomic/onchain/adapter";
 import type { OnchainFacts } from "@/lib/atomic/onchain/adapter";
 import { Badge, Panel, SectionHeader } from "@/components/ui";
@@ -25,19 +25,19 @@ export function OnchainPanel({ facts }: { facts: (OnchainFacts | null)[] }) {
       ) : (
         <div className="grid gap-3 sm:grid-cols-3">
           {live.map((f) => {
-            const meta = CHAINS[f.chain];
+            const meta = chainOrNull(f.chain);
             const contract = f.classification?.isContract;
             return (
               <div key={f.chain} className="rounded-lg border border-ink-700 bg-ink-800/50 px-4 py-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-mist-bright">{meta.name}</span>
+                  <span className="text-xs text-mist-bright">{chainName(f.chain)}</span>
                   <span className="font-mono text-[10px] text-mist-dim">
                     {contract ? "contract" : f.classification?.delegation ? "EOA · 7702" : "EOA"}
                   </span>
                 </div>
                 <div className="mt-2 font-mono text-lg text-white">
                   {f.nativeBalanceWei !== null
-                    ? `${formatWei(f.nativeBalanceWei, 18)} ${meta.nativeSymbol}`
+                    ? `${formatWei(f.nativeBalanceWei, 18)} ${meta?.nativeSymbol ?? ""}`.trimEnd()
                     : "—"}
                 </div>
                 <dl className="mt-2 space-y-1 font-mono text-[11px] text-mist-dim">

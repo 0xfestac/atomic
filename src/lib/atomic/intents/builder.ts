@@ -1,5 +1,5 @@
-import type { IntentSpec, StagedIntent } from "../types";
-import { CHAINS } from "../chains";
+import type { Chain, IntentSpec, StagedIntent } from "../types";
+import { CHAIN_LIST, chainOrNull } from "../chains";
 import { formatAmount, Rng } from "../engine/prng";
 import { tokenBySymbol } from "../engine/tokens";
 import { scanIntentParams } from "../security/checks";
@@ -7,13 +7,17 @@ import { scanIntentParams } from "../security/checks";
 /**
  * Intent preparation ("Act" stage). ATOMIC never holds keys and never
  * broadcasts: an intent is compiled into a signable typed-data payload
- * that the user reviews, approves explicitly, and executes from their own
- * wallet. Staged payloads remain unsigned data — approval is an
+ * that the user reviews, approves explicitly, and executes from their
+ * own wallet. Staged payloads remain unsigned data — approval is an
  * in-workspace review state only.
  */
 
-export function intentSummary(spec: IntentSpec): string {
-  const chainName = CHAINS[spec.chain]?.name ?? spec.chain;
+/**
+ * Call sites running in the browser pass the server-provided registry
+ * (client bundles only ship built-ins); server callers use the default.
+ */
+export function intentSummary(spec: IntentSpec, registry: Chain[] = CHAIN_LIST): string {
+  const chainName = registry.find((c) => c.id === spec.chain)?.name ?? spec.chain;
   switch (spec.kind) {
     case "swap": {
       const inTok = tokenBySymbol(spec.inputToken ?? "USDC");
@@ -38,13 +42,16 @@ function short(address: string): string {
 }
 
 /** EIP-712 typed data a wallet would sign. Kept canonical & deterministic. */
-export function buildTypedData(spec: IntentSpec): Record<string, unknown> {
-  const chainId = 1 + ["ethereum", "base", "arbitrum", "optimism", "polygon", "bnb", "avalanche"].indexOf(spec.chain);
+export function buildTypedData(spec: IntentSpec, registry: Chain[] = CHAIN_LIST): Record<string, unknown> {
+  // The domain binds the signature to the target network via its real
+  // EIP-155 id — wallets refuse to sign when the user is on a mismatched
+  // chain. Unknown chains get 0 rather than a plausible guess.
+  const evmChainId = registry.find((c) => c.id === spec.chain)?.evmChainId ?? chainOrNull(spec.chain)?.evmChainId ?? 0;
   return {
     domain: {
       name: "ATOMIC Intent",
       version: "1",
-      chainId,
+      chainId: evmChainId,
     },
     primaryType: "Intent",
     types: {
@@ -77,15 +84,18 @@ export function buildTypedData(spec: IntentSpec): Record<string, unknown> {
   };
 }
 
-export function stageIntent(spec: IntentSpec): StagedIntent {
-  const scan = scanIntentParams({
-    chain: spec.chain,
-    to: spec.to,
-    kind: spec.kind,
-    amount: spec.amount,
-    slippagePct: spec.slippagePct,
-    inputToken: spec.inputToken,
-  });
+export function stageIntent(spec: IntentSpec, registry: Chain[] = CHAIN_LIST): StagedIntent {
+  const scan = scanIntentParams(
+    {
+      chain: spec.chain,
+      to: spec.to,
+      kind: spec.kind,
+      amount: spec.amount,
+      slippagePct: spec.slippagePct,
+      inputToken: spec.inputToken,
+    },
+    registry,
+  );
 
   const id = `int_${new Rng(`intent:${JSON.stringify(spec)}:${Date.now()}`).int(1e11, 9e11).toString(36)}`;
 
@@ -94,8 +104,8 @@ export function stageIntent(spec: IntentSpec): StagedIntent {
     kind: spec.kind,
     chain: spec.chain,
     createdAt: new Date().toISOString(),
-    typedData: buildTypedData(spec),
-    summary: intentSummary(spec),
+    typedData: buildTypedData(spec, registry),
+    summary: intentSummary(spec, registry),
     securityScore: scan.score,
     securityNotes: scan.warnings,
     state: "review",

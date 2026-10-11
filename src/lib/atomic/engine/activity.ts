@@ -1,5 +1,5 @@
 import type { ChainId, EntitySummary, RelationshipEdge, RelationshipGraph, TokenHolding, TxRecord } from "../types";
-import { CHAIN_LIST, CHAINS } from "../chains";
+import { DEMO_CHAIN_LIST, chainOrNull } from "../chains";
 import { KNOWN_ENTITIES, entitySummary, knownEntity, pseudoAddress } from "./entities";
 import { Rng, daysAgoIso } from "./prng";
 import { TOKENS, tokenBySymbol } from "./tokens";
@@ -62,7 +62,7 @@ export function activity(entity: EntitySummary, limit = 40): TxRecord[] {
       counterpartyLabel: cp.label,
       timestamp: daysAgoIso(daysBack + rng.float()),
       status: rng.chance(0.96) ? "success" : "failed",
-      gasUsd: Number((rng.logScale(0.4, 18) * (CHAINS[cp.chain].avgGasGwei > 10 ? 3 : 0.2)).toFixed(2)),
+      gasUsd: Number((rng.logScale(0.4, 18) * ((chainOrNull(cp.chain)?.avgGasGwei ?? 1) > 10 ? 3 : 0.2)).toFixed(2)),
     });
   }
   return txs.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
@@ -97,7 +97,7 @@ export function relationshipTargets(address: string, count: number): (Relationsh
   targets.push(...anchors);
   while (targets.length < total) {
     const addr = pseudoAddress(`peer:${address}:${targets.length}`);
-    if (!targets.some((t) => t.address === addr)) targets.push({ address: addr, label: null, chain: rng.pick(CHAIN_LIST.map((c) => c.id)) as ChainId });
+    if (!targets.some((t) => t.address === addr)) targets.push({ address: addr, label: null, chain: rng.pick(DEMO_CHAIN_LIST.map((c) => c.id)) as ChainId });
   }
 
   return targets.map((t) => {

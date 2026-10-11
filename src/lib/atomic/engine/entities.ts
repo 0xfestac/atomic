@@ -1,5 +1,5 @@
 import type { ChainId, EntitySummary, EntityType, RiskFlag, RiskLevel } from "../types";
-import { CHAIN_LIST } from "../chains";
+import { DEMO_CHAIN_LIST } from "../chains";
 import { Rng, daysAgoIso, isEvmAddress, seededHex } from "./prng";
 
 export interface KnownEntity {
@@ -132,7 +132,10 @@ export function entitySummary(rawAddress: string): EntitySummary {
 
   const type: EntityType = known?.type ?? (rng.chance(0.35) ? "contract" : "wallet");
   const chainCount = known ? rng.int(2, 4) : rng.int(1, 4);
-  const chains = rng.sample(CHAIN_LIST.map((c) => c.id), chainCount) as ChainId[];
+  // The demo plane samples built-in chains only, so deterministic
+  // profiles are identical on server and client regardless of which
+  // operator-configured chains the server registry carries.
+  const chains = rng.sample(DEMO_CHAIN_LIST.map((c) => c.id), chainCount) as ChainId[];
   const firstSeenDays = known ? rng.int(900, 2600) : rng.int(3, 1400);
   const lastActiveDays = known ? rng.int(0, 4) : rng.int(0, 45);
 

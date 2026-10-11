@@ -6,6 +6,11 @@ import { Rng, formatUsd } from "@/lib/atomic/engine/prng";
 import { Badge, Panel, PageHeader, RiskBadge, SectionHeader, Sparkline, Stat } from "@/components/ui";
 import { AlertsFeed, WatchlistStrip } from "@/components/dashboard/live";
 
+// The Discover dashboard renders the chain registry (operator-configured
+// at startup), so it must never be statically prerendered from build-time
+// env.
+export const dynamic = "force-dynamic";
+
 export default function DiscoverPage() {
   const rng = new Rng("dashboard:v1");
   const vol24h = 3_940_000_000 + rng.int(0, 400_000_000);

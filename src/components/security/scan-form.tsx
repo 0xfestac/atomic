@@ -3,9 +3,23 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { CHAIN_LIST } from "@/lib/atomic/chains";
+import type { Chain } from "@/lib/atomic/types";
 import { isEvmAddress } from "@/lib/atomic/engine/prng";
 
-export function AddressScanForm({ initial = "", initialChain, label = "Contract or address", cta = "Run audit" }: { initial?: string; initialChain?: string; label?: string; cta?: string }) {
+export function AddressScanForm({
+  initial = "",
+  initialChain,
+  label = "Contract or address",
+  cta = "Run audit",
+  chains = CHAIN_LIST,
+}: {
+  initial?: string;
+  initialChain?: string;
+  label?: string;
+  cta?: string;
+  /** configured registry passed down from the server page */
+  chains?: Chain[];
+}) {
   const router = useRouter();
   const [value, setValue] = useState(initial);
   const [chain, setChain] = useState(initialChain ?? "");
@@ -39,7 +53,7 @@ export function AddressScanForm({ initial = "", initialChain, label = "Contract 
           onChange={(e) => setChain(e.target.value)}
         >
           <option value="">auto</option>
-          {CHAIN_LIST.map((c) => (
+          {chains.map((c) => (
             <option key={c.id} value={c.id}>
               {c.short}
             </option>

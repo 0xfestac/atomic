@@ -1,27 +1,14 @@
 import type { ChainId } from "../types";
+import { chainOrNull } from "../chains";
 
 /**
- * Keyless JSON-RPC transport over public endpoints. Every chain has an
- * ordered endpoint list; calls fail over to the next endpoint on network
- * or JSON-RPC errors, and remember the last working endpoint (sticky).
- * Operators can pin dedicated endpoints via ATOMIC_RPC_<CHAIN> env vars —
- * recommended for production traffic — or set ATOMIC_DISABLE_LIVE=1 to
- * run purely on the deterministic demo plane.
+ * Keyless JSON-RPC transport. Endpoint lists live in the chain registry
+ * (lib/atomic/chains.ts): calls fail over to the next endpoint on
+ * network or JSON-RPC errors and remember the last working endpoint
+ * (sticky). Operators pin dedicated endpoints via ATOMIC_RPC_<CHAIN>
+ * env vars — recommended for production traffic — or set
+ * ATOMIC_DISABLE_LIVE=1 to run purely on the deterministic demo plane.
  */
-
-export const RPC_ENDPOINTS: Record<ChainId, string[]> = {
-  ethereum: [
-    "https://ethereum-rpc.publicnode.com",
-    "https://eth.drpc.org",
-    "https://cloudflare-eth.com",
-  ],
-  base: ["https://base-rpc.publicnode.com", "https://mainnet.base.org"],
-  arbitrum: ["https://arbitrum-one-rpc.publicnode.com", "https://arb1.arbitrum.io/rpc"],
-  optimism: ["https://optimism-rpc.publicnode.com", "https://mainnet.optimism.io"],
-  polygon: ["https://polygon-bor-rpc.publicnode.com", "https://polygon-rpc.com"],
-  bnb: ["https://bsc-rpc.publicnode.com", "https://bsc-dataseed.binance.org"],
-  avalanche: ["https://avalanche-c-chain-rpc.publicnode.com", "https://api.avax.network/ext/bc/C/rpc"],
-};
 
 export class RpcError extends Error {
   constructor(
@@ -36,14 +23,13 @@ export class RpcError extends Error {
 
 const sticky = new Map<ChainId, string>();
 
-function endpointsFor(chain: ChainId): string[] {
-  const override = process.env[`ATOMIC_RPC_${chain.toUpperCase()}`]?.trim();
-  if (override) return [override];
-  const preferred = sticky.get(chain);
-  const list = RPC_ENDPOINTS[chain];
-  return preferred && list.includes(preferred)
-    ? [preferred, ...list.filter((e) => e !== preferred)]
-    : list;
+function endpointsFor(id: ChainId): string[] {
+  const meta = chainOrNull(id);
+  if (!meta || !meta.live) return [];
+  const preferred = sticky.get(id);
+  return preferred && meta.rpc.includes(preferred)
+    ? [preferred, ...meta.rpc.filter((e) => e !== preferred)]
+    : meta.rpc;
 }
 
 export function liveEnabled(): boolean {
@@ -97,7 +83,13 @@ export async function rpcCall<T>(
 ): Promise<T> {
   const timeoutMs = opts.timeoutMs ?? 8_000;
   const retries = opts.retries ?? 1;
+  const meta = chainOrNull(chain);
+  if (!meta) throw new RpcError(`unknown chain "${chain}"`, chain, method);
+  if (!meta.live) throw new RpcError(`live reads are disabled for chain "${chain}"`, chain, method);
   const endpoints = endpointsFor(chain);
+  if (endpoints.length === 0) {
+    throw new RpcError(`no rpc endpoint configured for chain "${chain}"`, chain, method);
+  }
   let lastError: unknown;
   for (const endpoint of endpoints) {
     try {

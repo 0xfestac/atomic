@@ -1,5 +1,5 @@
-import type { EntitySummary, RiskLevel, SecurityCheck, SecurityReport } from "../types";
-import { CHAINS } from "../chains";
+import type { Chain, EntitySummary, RiskLevel, SecurityCheck, SecurityReport } from "../types";
+import { CHAIN_LIST, chainName, chainOrNull } from "../chains";
 import { knownEntity } from "../engine/entities";
 import { Rng, DATA_NOW } from "../engine/prng";
 import { tokenByAddress } from "../engine/tokens";
@@ -275,23 +275,23 @@ function applyLiveEvidence(checks: SecurityCheck[], facts: OnchainFacts[]): void
   // CHN-01: genuine on-chain presence & classification
   if (primary) {
     const cls = primary.classification;
-    const chainName = CHAINS[primary.chain]?.name ?? primary.chain;
+    const chainLabel = chainName(primary.chain);
     if (!cls) {
       upsert("CHN-01", "On-chain verification", "contract", {
         status: "info",
-        detail: `Live state for ${chainName} unavailable; report fell back to heuristic checks.`,
+        detail: `Live state for ${chainLabel} unavailable; report fell back to heuristic checks.`,
         evidence: "rpc:unreachable",
       });
     } else if (cls.isContract) {
       const size = primary.bytecode?.codeSizeBytes ?? cls.codeSizeBytes;
       upsert("CHN-01", "On-chain verification", "contract", {
         status: "info",
-        detail: `Live read on ${chainName}: deployed contract, ${size.toLocaleString()} bytes of bytecode.`,
+        detail: `Live read on ${chainLabel}: deployed contract, ${size.toLocaleString()} bytes of bytecode.`,
         evidence: `eth_getCode:${primary.chain}:size=${size}`,
       });
     } else {
       const holding = primary.nativeBalanceWei !== null
-        ? ` holding ${formatWei(primary.nativeBalanceWei, 18)} ${CHAINS[primary.chain]?.nativeSymbol ?? ""}`.trimEnd()
+        ? ` holding ${formatWei(primary.nativeBalanceWei, 18)} ${chainOrNull(primary.chain)?.nativeSymbol ?? ""}`.trimEnd()
         : "";
       const delegation = cls.delegation
         ? `; EIP-7702 delegation active to ${cls.delegation.delegate.slice(0, 10)}… — the EOA's calls execute that contract's code`
@@ -364,14 +364,17 @@ export interface TxScanResult {
 }
 
 /** Deterministic pre-flight scan of an intent's parameters. */
-export function scanIntentParams(params: {
-  chain: string;
-  to: string;
-  kind: string;
-  amount?: number;
-  slippagePct?: number;
-  inputToken?: string;
-}): TxScanResult {
+export function scanIntentParams(
+  params: {
+    chain: string;
+    to: string;
+    kind: string;
+    amount?: number;
+    slippagePct?: number;
+    inputToken?: string;
+  },
+  registry: Chain[] = CHAIN_LIST,
+): TxScanResult {
   const warnings: TxScanResult["warnings"] = [];
   const rng = new Rng(`txscan:${JSON.stringify(params)}`);
   const to = params.to.toLowerCase();
@@ -402,7 +405,7 @@ export function scanIntentParams(params: {
       : { status: "pass", text: `Slippage tolerance ${slippage}% within safe band.` },
   );
 
-  const chainMeta = CHAINS[params.chain as keyof typeof CHAINS];
+  const chainMeta = registry.find((c) => c.id === params.chain) ?? chainOrNull(params.chain);
   warnings.push({
     status: "pass",
     text: `Route targets ${chainMeta?.name ?? params.chain}; estimated gas ${rng.logScale(0.2, 12).toFixed(2)} USD.`,

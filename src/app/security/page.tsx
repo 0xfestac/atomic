@@ -3,7 +3,7 @@ import { entitySummary } from "@/lib/atomic/engine/entities";
 import { isEvmAddress } from "@/lib/atomic/engine/prng";
 import { securityReport } from "@/lib/atomic/security/checks";
 import { onchainFactsForChains } from "@/lib/atomic/onchain/adapter";
-import { isChainId } from "@/lib/atomic/chains";
+import { CHAIN_LIST, isChainId } from "@/lib/atomic/chains";
 import { Badge, CheckStatusIcon, PageHeader, Panel, RiskBadge, SectionHeader, Stat } from "@/components/ui";
 import { AddressScanForm } from "@/components/security/scan-form";
 
@@ -37,7 +37,11 @@ export default async function SecurityPage({ searchParams }: { searchParams: Pro
       <div className="grid gap-6 lg:grid-cols-3">
         <Panel className="lg:col-span-1">
           <SectionHeader title="Scan a subject" sub="Token, contract, or wallet address" />
-          <AddressScanForm initial={valid ? address : ""} initialChain={isChainId(chain ?? "") ? chain : undefined} />
+          <AddressScanForm
+            initial={valid ? address : ""}
+            initialChain={isChainId(chain ?? "") ? chain : undefined}
+            chains={CHAIN_LIST}
+          />
           <div className="mt-5 space-y-2 border-t border-ink-700 pt-4">
             <div className="label-mono mb-1">Check categories</div>
             {CATEGORIES.map((c) => (

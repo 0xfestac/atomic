@@ -11,21 +11,22 @@ export async function GET(req: Request) {
   const limited = guardRequest(req, 300);
   if (limited) return limited;
 
-  const primary = CHAIN_LIST[0];
-  const health = liveEnabled() ? await chainHealth(primary.id) : null;
+  const primary = CHAIN_LIST.find((c) => c.live);
+  const health = liveEnabled() && primary ? await chainHealth(primary.id) : null;
 
   return NextResponse.json(
     {
       status: "ok",
       service: "ATOMIC",
       version: VERSION,
-      chains: CHAIN_LIST.map((c) => c.id),
+      chainCount: CHAIN_LIST.length,
+      chains: CHAIN_LIST.map((c) => ({ id: c.id, name: c.name, evmChainId: c.evmChainId, live: c.live })),
       dataPlane: liveEnabled() ? "live-onchain+demo-enrichment" : "deterministic-demo",
       liveRpc: {
         enabled: liveEnabled(),
-        ethereum: health
-          ? { reachable: health.reachable, blockNumber: health.blockNumber, checkedAt: health.checkedAt }
-          : { enabled: false },
+        primary: primary && health
+          ? { chain: primary.id, reachable: health.reachable, blockNumber: health.blockNumber, checkedAt: health.checkedAt }
+          : { chain: primary?.id ?? null, reachable: false, blockNumber: null, checkedAt: null },
       },
       time: new Date().toISOString(),
     },
