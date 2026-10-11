@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { chainName } from "@/lib/atomic/chains";
 import type { LiveTokenPosition, LiveTransfer } from "@/lib/atomic/types";
 import { shortAddress, formatAmount } from "@/lib/atomic/engine/prng";
@@ -6,14 +7,33 @@ import { Badge, Panel, SectionHeader } from "@/components/ui";
 /**
  * Live ERC-20 enrichment panels. Every row comes straight from a public
  * JSON-RPC read at request time (balanceOf / eth_getLogs) — nothing here
- * is sampled from the deterministic demo plane. Panels render nothing
- * when the chain data is unavailable, so the page degrades to the
- * labeled demo tables below.
+ * is sampled from the deterministic demo plane. When live data is
+ * unavailable a panel still renders, with an honest note on why
+ * (quiet address, bounded window, or live reads off), so the page
+ * degrades visibly to the labeled demo tables below.
  */
+
+function liveUnavailableNote(probed: number, what: string): ReactNode {
+  return probed > 0
+    ? `No live ${what} found on the ${probed} probed chain${probed === 1 ? "" : "s"} — the address may be quiet or hold none of the tracked tokens, and transfer-log coverage is bounded by each RPC's getLogs limits.`
+    : `Live ${what} scan unavailable (live reads disabled or the RPC rejected the query) — the deterministic demo tables below cover the modeled surface.`;
+}
 
 export function LivePositionsPanel({ positions }: { positions: (LiveTokenPosition[] | null)[] }) {
   const rows = positions.filter((p): p is LiveTokenPosition[] => Array.isArray(p) && p.length > 0).flat();
-  if (rows.length === 0) return null;
+  if (rows.length === 0) {
+    const probed = positions.filter((p) => Array.isArray(p)).length;
+    return (
+      <Panel>
+        <SectionHeader
+          title="Live token positions"
+          sub="ERC-20 balanceOf reads over public RPC — real chain state"
+          action={<Badge>no live rows</Badge>}
+        />
+        <p className="text-xs text-mist-dim">{liveUnavailableNote(probed, "token positions")}</p>
+      </Panel>
+    );
+  }
   return (
     <Panel>
       <SectionHeader
@@ -56,7 +76,19 @@ export function LiveTransfersPanel({ transfers }: { transfers: (LiveTransfer[] |
     .flat()
     .sort((a, b) => b.blockNumber - a.blockNumber)
     .slice(0, 10);
-  if (rows.length === 0) return null;
+  if (rows.length === 0) {
+    const probed = transfers.filter((t) => Array.isArray(t)).length;
+    return (
+      <Panel>
+        <SectionHeader
+          title="Live transfer log"
+          sub="ERC-20 Transfer events decoded from eth_getLogs over public RPC (recent block window)"
+          action={<Badge>no live rows</Badge>}
+        />
+        <p className="text-xs text-mist-dim">{liveUnavailableNote(probed, "transfers")}</p>
+      </Panel>
+    );
+  }
   return (
     <Panel>
       <SectionHeader

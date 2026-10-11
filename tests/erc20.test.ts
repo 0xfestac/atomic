@@ -6,6 +6,8 @@ import {
   liveTokenBalances,
   liveTransfers,
   resetErc20Caches,
+  SCAN_BLOCKS_CAP,
+  scanWindowBlocks,
 } from "@/lib/atomic/onchain/erc20";
 
 const VITALIK = "0xd8da6bf26964af9d7eed9e03e53415d37aa96045";
@@ -47,6 +49,7 @@ function parseReq(init: { body: string }): Req {
 beforeEach(() => {
   resetErc20Caches();
   delete process.env.ATOMIC_DISABLE_LIVE;
+  delete process.env.ATOMIC_TRANSFER_BLOCKS;
 });
 
 afterEach(() => {
@@ -104,7 +107,10 @@ describe("liveTokenBalances", () => {
     const fetchMock = vi.fn(async (_url: unknown, init: { body: string }) => {
       const req = parseReq(init);
       if (req.method === "eth_call" && req.data?.startsWith(BALANCE_OF)) {
-        const token = "0x" + req.data.slice(-40);
+        // balanceOf(holder): the argument must be the queried subject,
+        // the token contract arrives in `to`.
+        expect(req.data.slice(-40)).toBe(VITALIK.slice(2));
+        const token = (req.to ?? "").toLowerCase();
         if (token === USDC_ETH) return rpcResponse("0x" + (3_000_000n * 10n ** 6n).toString(16)); // 3,000,000 USDC
         if (token === WETH_ETH) return rpcResponse("0x1bc16d674ec80000"); // 2 (18 dec)
         if (token === LINK_ETH) return rpcResponse("0x0"); // zero → skipped
@@ -126,6 +132,23 @@ describe("liveTokenBalances", () => {
     expect(positions![1].token).toBe(WETH_ETH);
     // one call per curated token (symbols/decimals come from the curated list)
     expect(fetchMock).toHaveBeenCalledTimes(chainTokens("ethereum").length);
+  });
+
+  it("encodes the queried holder — not the token — as the balanceOf argument", async () => {
+    const holder = "0x28c6c06298d514db089934071355e5743bf21d60".slice(2);
+    const seenArgs: string[] = [];
+    const fetchMock = vi.fn(async (_url: unknown, init: { body: string }) => {
+      const req = parseReq(init);
+      if (req.method === "eth_call" && req.data?.startsWith(BALANCE_OF)) {
+        seenArgs.push(req.data.slice(-40));
+        return rpcResponse("0x0");
+      }
+      return rpcResponse("0x0");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await liveTokenBalances("ethereum", "0x" + holder);
+    expect(seenArgs.length).toBe(chainTokens("ethereum").length);
+    for (const arg of seenArgs) expect(arg).toBe(holder);
   });
 
   it("is null when the chain has no token list, without network calls", async () => {
@@ -156,6 +179,40 @@ describe("liveTokenBalances", () => {
     vi.stubGlobal("fetch", fetchMock);
     expect(await liveTokenBalances("ethereum", "0x1234")).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("scanWindowBlocks", () => {
+  it("defaults to 5000 and clamps the operator override", () => {
+    expect(scanWindowBlocks()).toBe(5_000);
+    process.env.ATOMIC_TRANSFER_BLOCKS = "128";
+    expect(scanWindowBlocks()).toBe(128);
+    process.env.ATOMIC_TRANSFER_BLOCKS = "1";
+    expect(scanWindowBlocks()).toBe(64); // lower clamp
+    process.env.ATOMIC_TRANSFER_BLOCKS = "99999999";
+    expect(scanWindowBlocks()).toBe(SCAN_BLOCKS_CAP); // upper clamp
+    process.env.ATOMIC_TRANSFER_BLOCKS = "junk";
+    expect(scanWindowBlocks()).toBe(5_000); // junk never breaks the scan
+  });
+
+  it("honors the operator-tuned transfer window during scans", async () => {
+    process.env.ATOMIC_TRANSFER_BLOCKS = "128";
+    const fromBlocks: string[] = [];
+    const fetchMock = vi.fn(async (_url: unknown, init: { body: string }) => {
+      const raw = JSON.parse(init.body) as { method: string; params: [{ fromBlock?: string }] };
+      if (raw.method === "eth_blockNumber") return rpcResponse("0x2710"); // 10000
+      if (raw.method === "eth_getLogs") {
+        fromBlocks.push(raw.params[0].fromBlock!);
+        return rpcResponse([]);
+      }
+      return rpcResponse("0x0");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await liveTransfers("ethereum", VITALIK)).toEqual([]);
+    // The tuned window (128) was attempted first — an empty result is a
+    // success, so the smaller fallback window was never needed.
+    expect(fromBlocks.length).toBe(2); // two directions, one window
+    for (const fb of fromBlocks) expect(BigInt(fb)).toBe(10_000n - 128n + 1n);
   });
 });
 

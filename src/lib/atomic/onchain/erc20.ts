@@ -169,7 +169,9 @@ export async function liveTokenBalances(chain: ChainId, address: string): Promis
   const reads = await Promise.all(
     tokens.map(async (token) => {
       try {
-        const data = BALANCE_OF + padTopic(token.address).slice(2);
+        // balanceOf(holder): the queried subject is the argument, the
+        // token contract arrives in `to`.
+        const data = BALANCE_OF + padTopic(normalized).slice(2);
         const raw = await rpcCall<string>(chain, "eth_call", [{ to: token.address, data }, "latest"]);
         return { token, rawBalance: hexToBigInt(raw) };
       } catch {
@@ -219,14 +221,34 @@ interface RawLog {
   logIndex?: string;
 }
 
-/** Maximum lookback per eth_getLogs scan (≈16h on Ethereum, further on L2s). */
-const SCAN_BLOCKS = 5_000;
+/** Upper clamp for the operator-tunable getLogs lookback (≈16h mainnet by default). */
+export const SCAN_BLOCKS_CAP = 50_000;
+const DEFAULT_SCAN_BLOCKS = 5_000;
+
+/**
+ * Operator-tunable getLogs lookback in blocks (ATOMIC_TRANSFER_BLOCKS,
+ * clamped 64–SCAN_BLOCKS_CAP) — coverage is operator choice, not a
+ * hardcode. Read per scan so tests and reloads pick the value up.
+ */
+export function scanWindowBlocks(): number {
+  const raw = process.env.ATOMIC_TRANSFER_BLOCKS;
+  if (raw === undefined || raw.trim() === "") return DEFAULT_SCAN_BLOCKS;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isInteger(n)) return DEFAULT_SCAN_BLOCKS;
+  return Math.min(SCAN_BLOCKS_CAP, Math.max(64, n));
+}
+
 /**
  * Public RPCs cap getLogs ranges very differently (some free tiers
  * accept ≤10 blocks), so the scan shrinks its window until the chain
  * accepts it — an empty result is still a success.
  */
-const SCAN_WINDOWS = [SCAN_BLOCKS, 1024, 256, 64];
+function scanWindows(): number[] {
+  const base = scanWindowBlocks();
+  return [base, 1024, 256, 64]
+    .filter((w, i, arr) => w <= base && arr.indexOf(w) === i)
+    .sort((a, b) => b - a);
+}
 const MAX_LOGS_PER_SCAN = 40;
 const MAX_TRANSFERS = 15;
 /** Strategy 2 caps the per-token scan at this many pinned tokens per chain. */
@@ -312,7 +334,7 @@ async function scanTransfers(chain: ChainId, normalized: string, padded: string)
     return [...merged.values()];
   };
 
-  for (const window of SCAN_WINDOWS) {
+  for (const window of scanWindows()) {
     const results = await Promise.all([
       scan({ topics: [TRANSFER_TOPIC, [padded]] }, window),
       scan({ topics: [TRANSFER_TOPIC, null, [padded]] }, window),
@@ -330,7 +352,7 @@ async function scanTransfers(chain: ChainId, normalized: string, padded: string)
   if (rows === null) {
     const pinned = chainTokens(chain).slice(0, PINNED_SCAN_TOKENS);
     if (pinned.length === 0) return null;
-    for (const window of SCAN_WINDOWS) {
+    for (const window of scanWindows()) {
       const results = await Promise.all(
         pinned.flatMap((t) => [
           scan({ address: t.address, topics: [TRANSFER_TOPIC, [padded]] }, window),

@@ -14,6 +14,7 @@ import { isEnsName } from "@/lib/atomic/onchain/name";
 import { Badge, CheckStatusIcon, PageHeader, Panel, RiskBadge, RiskGauge, SectionHeader } from "@/components/ui";
 import { ActivityTable, FlagsPanel, HoldingsTable, RelationshipGraphView } from "@/components/investigate/entity-view";
 import { EntityActions } from "@/components/investigate/entity-actions";
+import { EntityTabs } from "@/components/investigate/entity-tabs";
 import { LivePositionsPanel, LiveTransfersPanel } from "@/components/investigate/live-enrichment";
 import { OnchainPanel } from "@/components/investigate/onchain-panel";
 
@@ -113,135 +114,138 @@ export default async function EntityPage({ params, searchParams }: PageProps) {
         </div>
       </div>
 
-      <div className="mt-8 flex gap-1 border-b border-ink-700">
-        {TABS.map((t) => (
-          <Link
-            key={t.id}
-            href={`/investigate/${entity.address}?tab=${t.id}`}
-            className={`rounded-t-lg px-4 py-2.5 text-sm transition-colors ${
-              activeTab === t.id ? "border-x border-t border-ink-700 bg-ink-850 text-white" : "text-mist hover:text-mist-bright"
-            }`}
-          >
-            {t.label}
-          </Link>
-        ))}
-      </div>
-
-      <div className="mt-6">
-        {activeTab === "overview" && (
-          <div className="space-y-6">
-            <LiveTransfersPanel transfers={liveTransfers} />
-            <Panel>
-              <SectionHeader title="Token holdings" sub="Deterministic demo plane · modeled positions across chains" />
-              <HoldingsTable entity={entity} />
-            </Panel>
-            <Panel>
-              <SectionHeader title="Recent activity" sub="Deterministic demo plane · 15 most recent modeled transactions" />
-              <ActivityTable entity={entity} />
-            </Panel>
-            {nftPositions.length > 0 && (
+      <EntityTabs
+        basePath={`/investigate/${entity.address}`}
+        initialTab={activeTab}
+        tabs={[
+          {
+            id: "overview",
+            label: "Overview",
+            content: (
+              <div className="space-y-6">
+                <LiveTransfersPanel transfers={liveTransfers} />
+                <Panel>
+                  <SectionHeader title="Token holdings" sub="Deterministic demo plane · modeled positions across chains" />
+                  <HoldingsTable entity={entity} />
+                </Panel>
+                <Panel>
+                  <SectionHeader title="Recent activity" sub="Deterministic demo plane · 15 most recent modeled transactions" />
+                  <ActivityTable entity={entity} />
+                </Panel>
+                {nftPositions.length > 0 && (
+                  <Panel>
+                    <SectionHeader title="NFT positions" sub="Collections held by this subject" />
+                    <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                      {nftPositions.map((n) => (
+                        <div key={`${n.collection}-${n.tokenId}`} className="overflow-hidden rounded-lg border border-ink-700">
+                          <div
+                            className="flex h-24 items-center justify-center font-mono text-xs text-white/70"
+                            style={{ background: `linear-gradient(135deg, hsl(${n.gradientSeed} 60% 22%), hsl(${(n.gradientSeed + 80) % 360} 55% 12%))` }}
+                          >
+                            {n.collection}
+                          </div>
+                          <div className="flex items-center justify-between px-3 py-2 text-xs">
+                            <span className="font-mono text-mist-bright">{n.tokenId}</span>
+                            <span className="text-mist-dim">floor {formatUsd(n.floorUsd)}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </Panel>
+                )}
+              </div>
+            ),
+          },
+          {
+            id: "graph",
+            label: "Relationships",
+            content: (
               <Panel>
-                <SectionHeader title="NFT positions" sub="Collections held by this subject" />
-                <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                  {nftPositions.map((n) => (
-                    <div key={`${n.collection}-${n.tokenId}`} className="overflow-hidden rounded-lg border border-ink-700">
-                      <div
-                        className="flex h-24 items-center justify-center font-mono text-xs text-white/70"
-                        style={{ background: `linear-gradient(135deg, hsl(${n.gradientSeed} 60% 22%), hsl(${(n.gradientSeed + 80) % 360} 55% 12%))` }}
-                      >
-                        {n.collection}
-                      </div>
-                      <div className="flex items-center justify-between px-3 py-2 text-xs">
-                        <span className="font-mono text-mist-bright">{n.tokenId}</span>
-                        <span className="text-mist-dim">floor {formatUsd(n.floorUsd)}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <SectionHeader title="Relationship graph" sub="Direct counterparties traced over the lookback window" />
+                <RelationshipGraphView entity={entity} chainPool={chainPool} />
               </Panel>
-            )}
-          </div>
-        )}
-
-        {activeTab === "graph" && (
-          <Panel>
-            <SectionHeader title="Relationship graph" sub="Direct counterparties traced over the lookback window" />
-            <RelationshipGraphView entity={entity} chainPool={chainPool} />
-          </Panel>
-        )}
-
-        {activeTab === "security" && (
-          <div className="space-y-6">
-            <Panel>
-              <SectionHeader
-                title={`Security audit · grade ${security.grade}`}
-                sub={`Score ${security.score}/100 · ${security.liveChains?.length ? `live evidence via ${security.liveChains.map((c) => chainName(c)).join(", ")} public RPC · remaining checks heuristic` : "heuristic checks · deterministic"} · subject ${entity.address.slice(0, 12)}…`}
-              />
-              <div className="space-y-2">
-                {security.checks.map((c) => (
-                  <div key={c.id} className="flex items-start gap-3 rounded-lg border border-ink-700 bg-ink-800/50 px-4 py-3">
-                    <CheckStatusIcon status={c.status} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm text-mist-bright">{c.title}</span>
-                        <span className="font-mono text-[10px] text-mist-dim">{c.id}</span>
-                        <Badge>{c.category}</Badge>
-                        {c.source === "onchain" && <Badge tone="cyan">onchain</Badge>}
+            ),
+          },
+          {
+            id: "security",
+            label: "Security",
+            content: (
+              <div className="space-y-6">
+                <Panel>
+                  <SectionHeader
+                    title={`Security audit · grade ${security.grade}`}
+                    sub={`Score ${security.score}/100 · ${security.liveChains?.length ? `live evidence via ${security.liveChains.map((c) => chainName(c)).join(", ")} public RPC · remaining checks heuristic` : "heuristic checks · deterministic"} · subject ${entity.address.slice(0, 12)}…`}
+                  />
+                  <div className="space-y-2">
+                    {security.checks.map((c) => (
+                      <div key={c.id} className="flex items-start gap-3 rounded-lg border border-ink-700 bg-ink-800/50 px-4 py-3">
+                        <CheckStatusIcon status={c.status} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm text-mist-bright">{c.title}</span>
+                            <span className="font-mono text-[10px] text-mist-dim">{c.id}</span>
+                            <Badge>{c.category}</Badge>
+                            {c.source === "onchain" && <Badge tone="cyan">onchain</Badge>}
+                          </div>
+                          <p className="mt-1 text-xs text-mist">{c.detail}</p>
+                          <p className="mt-1 font-mono text-[11px] text-mist-dim">evidence: {c.evidence}</p>
+                        </div>
                       </div>
-                      <p className="mt-1 text-xs text-mist">{c.detail}</p>
-                      <p className="mt-1 font-mono text-[11px] text-mist-dim">evidence: {c.evidence}</p>
-                    </div>
+                    ))}
                   </div>
-                ))}
+                </Panel>
               </div>
-            </Panel>
-          </div>
-        )}
-
-        {activeTab === "report" && (
-          <div className="space-y-6">
-            <Panel>
-              <SectionHeader
-                title="Analyst report"
-                sub={`Rule-based engine · confidence ${report.confidence}% · deterministic output`}
-                action={<Link href="/integrations" className="text-xs text-cyan-300 hover:underline">Attach LLM provider →</Link>}
-              />
-              <h3 className="text-lg font-medium text-white">{report.headline}</h3>
-              <div className="mt-4 space-y-3">
-                {report.narrative.map((p, i) => (
-                  <p key={i} className="text-sm leading-relaxed text-mist">{p}</p>
-                ))}
-              </div>
-              <div className="mt-6 space-y-2">
-                {report.findings.map((f) => (
-                  <div key={f.id} className="rounded-lg border border-ink-700 bg-ink-800/50 px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <RiskBadge level={f.severity} small />
-                      <span className="text-sm font-medium text-mist-bright">{f.title}</span>
-                      <span className="ml-auto font-mono text-[10px] text-mist-dim">{f.id}</span>
-                    </div>
-                    <p className="mt-1.5 text-xs leading-relaxed text-mist">{f.detail}</p>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {f.evidence.map((e) => (
-                        <span key={e} className="rounded border border-ink-600 px-2 py-0.5 font-mono text-[10px] text-mist-dim">{e}</span>
+            ),
+          },
+          {
+            id: "report",
+            label: "Analyst report",
+            content: (
+              <div className="space-y-6">
+                <Panel>
+                  <SectionHeader
+                    title="Analyst report"
+                    sub={`Rule-based engine · confidence ${report.confidence}% · deterministic output`}
+                    action={<Link href="/integrations" className="text-xs text-cyan-300 hover:underline">Attach LLM provider →</Link>}
+                  />
+                  <h3 className="text-lg font-medium text-white">{report.headline}</h3>
+                  <div className="mt-4 space-y-3">
+                    {report.narrative.map((p, i) => (
+                      <p key={i} className="text-sm leading-relaxed text-mist">{p}</p>
+                    ))}
+                  </div>
+                  <div className="mt-6 space-y-2">
+                    {report.findings.map((f) => (
+                      <div key={f.id} className="rounded-lg border border-ink-700 bg-ink-800/50 px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <RiskBadge level={f.severity} small />
+                          <span className="text-sm font-medium text-mist-bright">{f.title}</span>
+                          <span className="ml-auto font-mono text-[10px] text-mist-dim">{f.id}</span>
+                        </div>
+                        <p className="mt-1.5 text-xs leading-relaxed text-mist">{f.detail}</p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {f.evidence.map((e) => (
+                            <span key={e} className="rounded border border-ink-600 px-2 py-0.5 font-mono text-[10px] text-mist-dim">{e}</span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                    {report.findings.length === 0 && <p className="text-sm text-mist">No findings raised.</p>}
+                  </div>
+                  <div className="mt-6 border-t border-ink-700 pt-4">
+                    <div className="label-mono mb-2">Sources</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {report.sources.map((s) => (
+                        <Badge key={s}>{s}</Badge>
                       ))}
                     </div>
                   </div>
-                ))}
-                {report.findings.length === 0 && <p className="text-sm text-mist">No findings raised.</p>}
+                </Panel>
               </div>
-              <div className="mt-6 border-t border-ink-700 pt-4">
-                <div className="label-mono mb-2">Sources</div>
-                <div className="flex flex-wrap gap-1.5">
-                  {report.sources.map((s) => (
-                    <Badge key={s}>{s}</Badge>
-                  ))}
-                </div>
-              </div>
-            </Panel>
-          </div>
-        )}
-      </div>
+            ),
+          },
+        ]}
+      />
     </div>
   );
 }
