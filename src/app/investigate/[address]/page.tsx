@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
@@ -9,13 +10,12 @@ import { isEvmAddress, formatUsd } from "@/lib/atomic/engine/prng";
 import { analystReport } from "@/lib/atomic/analyst/report";
 import { securityReport } from "@/lib/atomic/security/checks";
 import { onchainFactsForChains, resolveEns } from "@/lib/atomic/onchain/adapter";
-import { liveTokenBalancesForChains, liveTransfersForChains } from "@/lib/atomic/onchain/erc20";
 import { isEnsName } from "@/lib/atomic/onchain/name";
 import { Badge, CheckStatusIcon, PageHeader, Panel, RiskBadge, RiskGauge, SectionHeader } from "@/components/ui";
 import { ActivityTable, FlagsPanel, HoldingsTable, RelationshipGraphView } from "@/components/investigate/entity-view";
 import { EntityActions } from "@/components/investigate/entity-actions";
 import { EntityTabs } from "@/components/investigate/entity-tabs";
-import { LivePositionsPanel, LiveTransfersPanel } from "@/components/investigate/live-enrichment";
+import { LivePanelSkeleton, LivePositionsSection, LiveTransfersSection } from "@/components/investigate/live-enrichment";
 import { OnchainPanel } from "@/components/investigate/onchain-panel";
 
 interface PageProps {
@@ -60,10 +60,6 @@ export default async function EntityPage({ params, searchParams }: PageProps) {
   const report = analystReport(entity);
   const live = await onchainFactsForChains(entity.chains, address);
   const security = securityReport(address, entity, live);
-  const [livePositions, liveTransfers] = await Promise.all([
-    liveTokenBalancesForChains(entity.chains, address, 3),
-    liveTransfersForChains(entity.chains, address, 3),
-  ]);
   const nftPositions = nfts(entity);
   const ageDays = Math.max(1, Math.round((Date.UTC(2026, 9, 1) - new Date(entity.firstSeen).getTime()) / 86400_000));
   const inflow = txs.filter((t) => t.type === "receive").reduce((a, t) => a + t.valueUsd, 0);
@@ -104,7 +100,9 @@ export default async function EntityPage({ params, searchParams }: PageProps) {
 
           <OnchainPanel facts={live} />
 
-          <LivePositionsPanel positions={livePositions} />
+          <Suspense fallback={<LivePanelSkeleton />}>
+            <LivePositionsSection chains={entity.chains} address={address} />
+          </Suspense>
 
           <div className="grid gap-4 sm:grid-cols-3">
             <Panel><div className="label-mono">Inflow 90d</div><div className="mt-1.5 font-mono text-lg text-emerald-400">{formatUsd(inflow)}</div></Panel>
@@ -123,7 +121,9 @@ export default async function EntityPage({ params, searchParams }: PageProps) {
             label: "Overview",
             content: (
               <div className="space-y-6">
-                <LiveTransfersPanel transfers={liveTransfers} />
+                <Suspense fallback={<LivePanelSkeleton />}>
+                  <LiveTransfersSection chains={entity.chains} address={address} />
+                </Suspense>
                 <Panel>
                   <SectionHeader title="Token holdings" sub="Deterministic demo plane · modeled positions across chains" />
                   <HoldingsTable entity={entity} />

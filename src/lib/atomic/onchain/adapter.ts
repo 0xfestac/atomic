@@ -2,6 +2,7 @@ import type { ChainId } from "../types";
 import { toChecksumAddress, ensNamehash } from "./keccak";
 import { isEnsName } from "./name";
 import { liveEnabled, rpcCall } from "./rpc";
+import { SwrCache } from "./swr";
 
 /**
  * Read-only on-chain lookups over plain JSON-RPC. Every function returns
@@ -210,7 +211,7 @@ export interface OnchainFacts {
 }
 
 const FACTS_TTL = 60_000;
-const factsCache = new Map<string, { at: number; facts: OnchainFacts | null }>();
+const factsCache = new SwrCache<OnchainFacts | null>(FACTS_TTL, 500);
 
 /** Drop cached live facts — used on chain-registry reloads. */
 export function resetOnchainCaches(): void {
@@ -221,22 +222,10 @@ function factsKey(chain: ChainId, address: string): string {
   return `${chain}:${address.toLowerCase()}`;
 }
 
-/**
- * Aggregate live facts for an address on one chain. Never throws; cached
- * for 60s; returns null when live mode is disabled.
- */
-export async function onchainFacts(chain: ChainId, address: string): Promise<OnchainFacts | null> {
-  if (!liveEnabled()) return null;
-  const key = factsKey(chain, address);
-  const cached = factsCache.get(key);
-  const now = Date.now();
-  if (cached && now - cached.at < FACTS_TTL) return cached.facts;
-
+/** One full live probe of an address on one chain. Never throws. */
+async function loadOnchainFacts(chain: ChainId, address: string): Promise<OnchainFacts | null> {
   const cls = await classifyAddress(chain, address);
-  if (!cls) {
-    factsCache.set(key, { at: now, facts: null });
-    return null;
-  }
+  if (!cls) return null;
 
   const [balance, txCount, proxy, owner, bytecode] = await Promise.all([
     nativeBalance(chain, address),
@@ -246,7 +235,7 @@ export async function onchainFacts(chain: ChainId, address: string): Promise<Onc
     cls.isContract ? scanBytecode(chain, address) : Promise.resolve(null),
   ]);
 
-  const facts: OnchainFacts = {
+  return {
     chain,
     address: address.toLowerCase(),
     classification: cls,
@@ -257,9 +246,16 @@ export async function onchainFacts(chain: ChainId, address: string): Promise<Onc
     bytecode,
     ok: true,
   };
-  if (factsCache.size > 500) factsCache.clear();
-  factsCache.set(key, { at: now, facts });
-  return facts;
+}
+
+/**
+ * Aggregate live facts for an address on one chain. Never throws; served
+ * stale-while-revalidate from a 60s cache; returns null when live mode is
+ * disabled.
+ */
+export function onchainFacts(chain: ChainId, address: string): Promise<OnchainFacts | null> {
+  if (!liveEnabled()) return Promise.resolve(null);
+  return factsCache.get(factsKey(chain, address), () => loadOnchainFacts(chain, address));
 }
 
 /** Facts for the first `max` chains of an entity, in parallel. */

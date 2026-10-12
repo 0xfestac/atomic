@@ -4,6 +4,7 @@ import { decodeEvmString, hexToBigInt } from "./adapter";
 import { toChecksumAddress } from "./keccak";
 import { isEvmAddress } from "../engine/prng";
 import { liveEnabled, rpcCall } from "./rpc";
+import { SwrCache } from "./swr";
 
 /**
  * Live ERC-20 enrichment over keyless public RPC — no indexer required:
@@ -147,25 +148,25 @@ async function tokenMeta(chain: ChainId, token: string, base: ConfiguredToken): 
 }
 
 const POSITIONS_TTL = 60_000;
-const positionsCache = new Map<string, { at: number; positions: LiveTokenPosition[] | null }>();
+const positionsCache = new SwrCache<LiveTokenPosition[] | null>(POSITIONS_TTL, 500);
 
 /**
  * Non-zero ERC-20 balances for an address on one chain, largest first.
  * null when live mode is off, the address/chain is unusable, or every
- * read failed — callers fall back to the demo plane.
+ * read failed — callers fall back to the demo plane. Served
+ * stale-while-revalidate so revisits never block on a re-read.
  */
-export async function liveTokenBalances(chain: ChainId, address: string): Promise<LiveTokenPosition[] | null> {
-  if (!liveEnabled()) return null;
+export function liveTokenBalances(chain: ChainId, address: string): Promise<LiveTokenPosition[] | null> {
+  if (!liveEnabled()) return Promise.resolve(null);
   const normalized = address.toLowerCase();
-  if (!isEvmAddress(normalized)) return null;
+  if (!isEvmAddress(normalized)) return Promise.resolve(null);
   const tokens = chainTokens(chain);
-  if (tokens.length === 0) return null;
+  if (tokens.length === 0) return Promise.resolve(null);
 
-  const key = `${chain}:${normalized}`;
-  const cached = positionsCache.get(key);
-  const now = Date.now();
-  if (cached && now - cached.at < POSITIONS_TTL) return cached.positions;
+  return positionsCache.get(`${chain}:${normalized}`, () => loadTokenBalances(chain, normalized, tokens));
+}
 
+async function loadTokenBalances(chain: ChainId, normalized: string, tokens: ConfiguredToken[]): Promise<LiveTokenPosition[] | null> {
   const reads = await Promise.all(
     tokens.map(async (token) => {
       try {
@@ -203,8 +204,6 @@ export async function liveTokenBalances(chain: ChainId, address: string): Promis
   });
 
   const result: LiveTokenPosition[] | null = okReads > 0 ? positions.sort((a, b) => b.amount - a.amount).slice(0, 12) : null;
-  if (positionsCache.size > 500) positionsCache.clear();
-  positionsCache.set(key, { at: now, positions: result });
   return result;
 }
 
@@ -274,27 +273,19 @@ async function blockTimestamp(chain: ChainId, blockHex: string): Promise<number 
 /**
  * Recent ERC-20 transfers touching `address` on one chain, newest first.
  * Returns [] when the window holds no transfers, null when the scan is
- * impossible (live off, getLogs unsupported/rejected). Cached for 60s —
- * a scan costs several RPC round-trips.
+ * impossible (live off, getLogs unsupported/rejected). Served
+ * stale-while-revalidate from a 60s cache — a scan costs several RPC
+ * round-trips, so revisits must not repeat it on the navigation path.
  */
 const TRANSFERS_TTL = 60_000;
-const transfersCache = new Map<string, { at: number; transfers: LiveTransfer[] | null }>();
+const transfersCache = new SwrCache<LiveTransfer[] | null>(TRANSFERS_TTL, 300);
 
-export async function liveTransfers(chain: ChainId, address: string): Promise<LiveTransfer[] | null> {
-  if (!liveEnabled()) return null;
+export function liveTransfers(chain: ChainId, address: string): Promise<LiveTransfer[] | null> {
+  if (!liveEnabled()) return Promise.resolve(null);
   const normalized = address.toLowerCase();
-  if (!isEvmAddress(normalized)) return null;
-  const padded = padTopic(normalized);
+  if (!isEvmAddress(normalized)) return Promise.resolve(null);
 
-  const cacheKey = `${chain}:${normalized}`;
-  const cached = transfersCache.get(cacheKey);
-  const now = Date.now();
-  if (cached && now - cached.at < TRANSFERS_TTL) return cached.transfers;
-
-  const result = await scanTransfers(chain, normalized, padded);
-  if (transfersCache.size > 300) transfersCache.clear();
-  transfersCache.set(cacheKey, { at: now, transfers: result });
-  return result;
+  return transfersCache.get(`${chain}:${normalized}`, () => scanTransfers(chain, normalized, padTopic(normalized)));
 }
 
 async function scanTransfers(chain: ChainId, normalized: string, padded: string): Promise<LiveTransfer[] | null> {

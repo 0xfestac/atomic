@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { chainName } from "@/lib/atomic/chains";
-import type { LiveTokenPosition, LiveTransfer } from "@/lib/atomic/types";
+import type { ChainId, LiveTokenPosition, LiveTransfer } from "@/lib/atomic/types";
 import { shortAddress, formatAmount } from "@/lib/atomic/engine/prng";
+import { liveTokenBalancesForChains, liveTransfersForChains } from "@/lib/atomic/onchain/erc20";
 import { Badge, Panel, SectionHeader } from "@/components/ui";
 
 /**
@@ -133,6 +134,35 @@ export function LiveTransfersPanel({ transfers }: { transfers: (LiveTransfer[] |
       <p className="mt-3 text-[11px] text-mist-dim">
         Native-coin transfers and contract internals need a full indexer — the deterministic activity table below covers the complete modeled surface.
       </p>
+    </Panel>
+  );
+}
+
+/**
+ * Suspense-streamed wrappers around the live reads. The entity shell
+ * renders immediately from the deterministic plane; these sections
+ * resolve when the RPC round-trips finish, so slow public endpoints
+ * never block the navigation itself.
+ */
+export async function LivePositionsSection({ chains, address }: { chains: ChainId[]; address: string }) {
+  const positions = await liveTokenBalancesForChains(chains, address, 3);
+  return <LivePositionsPanel positions={positions} />;
+}
+
+export async function LiveTransfersSection({ chains, address }: { chains: ChainId[]; address: string }) {
+  const transfers = await liveTransfersForChains(chains, address, 3);
+  return <LiveTransfersPanel transfers={transfers} />;
+}
+
+export function LivePanelSkeleton() {
+  return (
+    <Panel>
+      <SectionHeader title="Live on-chain enrichment" sub="Reading public RPC…" action={<Badge>loading</Badge>} />
+      <div className="animate-pulse space-y-2">
+        <div className="h-5 w-2/3 rounded bg-ink-800" />
+        <div className="h-5 w-1/2 rounded bg-ink-800" />
+        <div className="h-5 w-3/5 rounded bg-ink-800" />
+      </div>
     </Panel>
   );
 }
