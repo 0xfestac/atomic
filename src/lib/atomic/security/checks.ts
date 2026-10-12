@@ -4,7 +4,7 @@ import { knownEntity } from "../engine/entities";
 import { Rng, DATA_NOW } from "../engine/prng";
 import { tokenByAddress } from "../engine/tokens";
 import type { OnchainFacts } from "../onchain/adapter";
-import { formatWei } from "../onchain/adapter";
+import { formatWei } from "../onchain/format";
 
 /**
  * Deterministic security analysis. Every check is a fixed, explainable

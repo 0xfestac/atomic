@@ -33,6 +33,23 @@ describe("stale-while-revalidate cache", () => {
     }
   });
 
+  it("hands background refresh tasks to the injected scheduler", async () => {
+    vi.useFakeTimers();
+    try {
+      const scheduled: Promise<number>[] = [];
+      const cache = new SwrCache<number>(50, 100, (t) => scheduled.push(t));
+      expect(await cache.get("k", () => Promise.resolve(1))).toBe(1);
+      vi.advanceTimersByTime(51);
+
+      // stale serve: the refresh runs through the scheduler (e.g. after())
+      expect(await cache.get("k", () => Promise.resolve(2))).toBe(1);
+      expect(scheduled).toHaveLength(1);
+      await expect(scheduled[0]).resolves.toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("dedupes concurrent loads for one key", async () => {
     const cache = new SwrCache<number>(1_000, 100);
     let release!: (v: number) => void;

@@ -5,11 +5,11 @@ import {
   hexToBigInt,
   scanBytecode,
   BYTECODE_SELECTORS,
-  formatWei,
   resolveEns,
   onchainFacts,
 } from "@/lib/atomic/onchain/adapter";
 import { rpcCall, RpcError } from "@/lib/atomic/onchain/rpc";
+import { formatWei } from "@/lib/atomic/onchain/format";
 import { isValidWebhookUrl } from "@/lib/atomic/alerts/rules";
 import { rateLimit } from "@/lib/atomic/api/guard";
 

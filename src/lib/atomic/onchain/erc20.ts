@@ -5,6 +5,7 @@ import { toChecksumAddress } from "./keccak";
 import { isEvmAddress } from "../engine/prng";
 import { liveEnabled, rpcCall } from "./rpc";
 import { SwrCache } from "./swr";
+import { afterResponse } from "./background";
 
 /**
  * Live ERC-20 enrichment over keyless public RPC — no indexer required:
@@ -148,7 +149,7 @@ async function tokenMeta(chain: ChainId, token: string, base: ConfiguredToken): 
 }
 
 const POSITIONS_TTL = 60_000;
-const positionsCache = new SwrCache<LiveTokenPosition[] | null>(POSITIONS_TTL, 500);
+const positionsCache = new SwrCache<LiveTokenPosition[] | null>(POSITIONS_TTL, 500, afterResponse);
 
 /**
  * Non-zero ERC-20 balances for an address on one chain, largest first.
@@ -278,7 +279,7 @@ async function blockTimestamp(chain: ChainId, blockHex: string): Promise<number 
  * round-trips, so revisits must not repeat it on the navigation path.
  */
 const TRANSFERS_TTL = 60_000;
-const transfersCache = new SwrCache<LiveTransfer[] | null>(TRANSFERS_TTL, 300);
+const transfersCache = new SwrCache<LiveTransfer[] | null>(TRANSFERS_TTL, 300, afterResponse);
 
 export function liveTransfers(chain: ChainId, address: string): Promise<LiveTransfer[] | null> {
   if (!liveEnabled()) return Promise.resolve(null);

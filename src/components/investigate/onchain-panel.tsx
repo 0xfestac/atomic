@@ -1,5 +1,5 @@
 import { chainName, chainOrNull } from "@/lib/atomic/chains";
-import { formatWei } from "@/lib/atomic/onchain/adapter";
+import { formatWei } from "@/lib/atomic/onchain/format";
 import type { OnchainFacts } from "@/lib/atomic/onchain/adapter";
 import { Badge, Panel, SectionHeader } from "@/components/ui";
 

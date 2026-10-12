@@ -3,6 +3,7 @@ import { toChecksumAddress, ensNamehash } from "./keccak";
 import { isEnsName } from "./name";
 import { liveEnabled, rpcCall } from "./rpc";
 import { SwrCache } from "./swr";
+import { afterResponse } from "./background";
 
 /**
  * Read-only on-chain lookups over plain JSON-RPC. Every function returns
@@ -211,7 +212,7 @@ export interface OnchainFacts {
 }
 
 const FACTS_TTL = 60_000;
-const factsCache = new SwrCache<OnchainFacts | null>(FACTS_TTL, 500);
+const factsCache = new SwrCache<OnchainFacts | null>(FACTS_TTL, 500, afterResponse);
 
 /** Drop cached live facts — used on chain-registry reloads. */
 export function resetOnchainCaches(): void {
@@ -265,11 +266,4 @@ export async function onchainFactsForChains(
   max = 3,
 ): Promise<(OnchainFacts | null)[]> {
   return Promise.all(chains.slice(0, max).map((c) => onchainFacts(c, address)));
-}
-
-export function formatWei(wei: bigint, decimals: number, display = 4): string {
-  const base = 10n ** BigInt(decimals);
-  const whole = wei / base;
-  const frac = (wei % base).toString().padStart(decimals, "0").slice(0, display);
-  return `${whole.toString()}.${frac}`;
 }

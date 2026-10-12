@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { entitySummary } from "@/lib/atomic/engine/entities";
 import { isEvmAddress } from "@/lib/atomic/engine/prng";
+import type { ChainId, EntitySummary } from "@/lib/atomic/types";
 import { securityReport } from "@/lib/atomic/security/checks";
 import { onchainFactsForChains } from "@/lib/atomic/onchain/adapter";
 import { CHAIN_LIST, isChainId } from "@/lib/atomic/chains";
@@ -9,6 +11,83 @@ import { Badge, CheckStatusIcon, PageHeader, Panel, RiskBadge, SectionHeader, St
 import { AddressScanForm } from "@/components/security/scan-form";
 
 export const metadata = { title: "Security" };
+
+/**
+ * The audit consumes live chain facts, which cost several RPC round-trips
+ * on a subject's very first scan. The grade tile and the checks panel are
+ * deferred sections: the page shell streams immediately and each resolves
+ * when the probe lands (the SWR cache dedupes the two reads into one
+ * probe). Repeat scans are served from the stale-while-revalidate cache.
+ */
+async function SecurityGradeTile({ probeChains, subject, entity }: { probeChains: ChainId[]; subject: string; entity: EntitySummary }) {
+  const live = await onchainFactsForChains(probeChains, subject);
+  const report = securityReport(subject, entity, live);
+  return (
+    <Stat
+      label="Grade"
+      value={report.grade}
+      sub={`${report.score}/100 composite`}
+      tone={report.score >= 72 ? "green" : report.score >= 55 ? undefined : "red"}
+    />
+  );
+}
+
+async function AuditChecksPanel({ probeChains, subject, entity }: { probeChains: ChainId[]; subject: string; entity: EntitySummary }) {
+  const live = await onchainFactsForChains(probeChains, subject);
+  const report = securityReport(subject, entity, live);
+  return (
+    <Panel>
+      <SectionHeader
+        title={`Audit results · ${report.checks.length} checks`}
+        sub={report.liveChains?.length
+          ? `Live evidence via ${report.liveChains.join(", ")} public RPC — heuristic checks are deterministic`
+          : "Heuristic checks — deterministic, identical input yields identical report"}
+        action={<RiskBadge level={entity.riskLevel} />}
+      />
+      <div className="space-y-2">
+        {report.checks.map((c) => (
+          <div key={c.id} className="flex items-start gap-3 rounded-lg border border-ink-700 bg-ink-800/50 px-4 py-3">
+            <CheckStatusIcon status={c.status} />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm text-mist-bright">{c.title}</span>
+                <span className="font-mono text-[10px] text-mist-dim">{c.id}</span>
+                <Badge>{c.category}</Badge>
+                {c.source === "onchain" && <Badge tone="cyan">onchain</Badge>}
+                {c.status !== "pass" && c.status !== "info" && <Badge tone={c.status === "fail" ? "red" : "amber"}>severity if failed: {c.severityIfFail}</Badge>}
+              </div>
+              <p className="mt-1 text-xs text-mist">{c.detail}</p>
+              <p className="mt-1 font-mono text-[11px] text-mist-dim">evidence: {c.evidence}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function GradeTileSkeleton() {
+  return (
+    <Stat
+      label="Grade"
+      value={<span className="inline-block h-8 w-10 animate-pulse rounded bg-ink-800 align-middle" />}
+      sub="reading public RPC…"
+    />
+  );
+}
+
+function AuditPanelSkeleton() {
+  return (
+    <Panel>
+      <SectionHeader title="Audit results" sub="Reading public RPC…" action={<Badge>loading</Badge>} />
+      <div className="animate-pulse space-y-2">
+        <div className="h-12 rounded-lg bg-ink-800" />
+        <div className="h-12 rounded-lg bg-ink-800" />
+        <div className="h-12 rounded-lg bg-ink-800" />
+      </div>
+    </Panel>
+  );
+}
 
 const CATEGORIES: { id: string; label: string; sub: string }[] = [
   { id: "contract", label: "Contract integrity", sub: "source, proxies, upgradeability" },
@@ -26,8 +105,6 @@ export default async function SecurityPage({ searchParams }: { searchParams: Pro
   const chainPool = CHAIN_LIST.map((c) => c.id);
   const entity = subject ? entitySummary(subject, chainPool) : null;
   const probeChains = chain && isChainId(chain) ? [chain] : entity?.chains ?? [];
-  const live = subject ? await onchainFactsForChains(probeChains, subject) : [];
-  const report = subject ? securityReport(subject, entity ?? undefined, live) : null;
 
   return (
     <div>
@@ -57,7 +134,7 @@ export default async function SecurityPage({ searchParams }: { searchParams: Pro
         </Panel>
 
         <div className="space-y-6 lg:col-span-2">
-          {!report || !entity ? (
+          {!entity || !subject ? (
             <Panel>
               <div className="flex h-full min-h-64 flex-col items-center justify-center text-center">
                 <p className="text-sm text-mist-bright">Enter an address to run the audit</p>
@@ -69,38 +146,16 @@ export default async function SecurityPage({ searchParams }: { searchParams: Pro
           ) : (
             <>
               <div className="grid gap-4 sm:grid-cols-3">
-                <Stat label="Grade" value={report.grade} sub={`${report.score}/100 composite`} tone={report.score >= 72 ? "green" : report.score >= 55 ? undefined : "red"} />
-                <Stat label="Subject" value={<span className="font-mono text-sm">{entity.label ?? `${address!.slice(0, 10)}…`}</span>} sub={entity.type} />
+                <Suspense fallback={<GradeTileSkeleton />}>
+                  <SecurityGradeTile probeChains={probeChains} subject={subject} entity={entity} />
+                </Suspense>
+                <Stat label="Subject" value={<span className="font-mono text-sm">{entity.label ?? `${subject.slice(0, 10)}…`}</span>} sub={entity.type} />
                 <Stat label="Entity risk" value={`${entity.riskScore}/100`} sub={<Link className="text-cyan-300 hover:underline" href={`/investigate/${entity.address}`}>open investigation →</Link>} />
               </div>
 
-              <Panel>
-                <SectionHeader
-                  title={`Audit results · ${report.checks.length} checks`}
-                  sub={report.liveChains?.length
-                    ? `Live evidence via ${report.liveChains.join(", ")} public RPC — heuristic checks are deterministic`
-                    : "Heuristic checks — deterministic, identical input yields identical report"}
-                  action={<RiskBadge level={entity.riskLevel} />}
-                />
-                <div className="space-y-2">
-                  {report.checks.map((c) => (
-                    <div key={c.id} className="flex items-start gap-3 rounded-lg border border-ink-700 bg-ink-800/50 px-4 py-3">
-                      <CheckStatusIcon status={c.status} />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm text-mist-bright">{c.title}</span>
-                          <span className="font-mono text-[10px] text-mist-dim">{c.id}</span>
-                          <Badge>{c.category}</Badge>
-                          {c.source === "onchain" && <Badge tone="cyan">onchain</Badge>}
-                          {c.status !== "pass" && c.status !== "info" && <Badge tone={c.status === "fail" ? "red" : "amber"}>severity if failed: {c.severityIfFail}</Badge>}
-                        </div>
-                        <p className="mt-1 text-xs text-mist">{c.detail}</p>
-                        <p className="mt-1 font-mono text-[11px] text-mist-dim">evidence: {c.evidence}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </Panel>
+              <Suspense fallback={<AuditPanelSkeleton />}>
+                <AuditChecksPanel probeChains={probeChains} subject={subject} entity={entity} />
+              </Suspense>
             </>
           )}
         </div>

@@ -15,6 +15,14 @@ export class SwrCache<T> {
   constructor(
     readonly ttlMs: number,
     private readonly capacity: number,
+    /**
+     * Executes background refresh tasks. The server-only onchain adapters
+     * pass afterResponse (Next's after()) here so a refresh survives
+     * response flush on serverless runtimes; the default is a plain
+     * fire-and-forget promise. Deliberately injectable: this module stays
+     * dependency-free so it is safe in any bundle, client or server.
+     */
+    private readonly schedule: (task: Promise<T>) => void = (task) => void task.catch(() => {}),
   ) {}
 
   get(key: string, load: () => Promise<T>): Promise<T> {
@@ -42,7 +50,7 @@ export class SwrCache<T> {
 
     if (cached) {
       // Serve the stale value now; the refresh continues in the background.
-      refreshed.catch(() => {});
+      this.schedule(refreshed);
       return Promise.resolve(cached.value);
     }
     return refreshed;

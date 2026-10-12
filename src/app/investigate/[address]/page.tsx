@@ -7,6 +7,7 @@ import { ensureChains } from "@/lib/atomic/chains-config";
 import { activity, nfts } from "@/lib/atomic/engine/activity";
 import { entitySummary } from "@/lib/atomic/engine/entities";
 import { isEvmAddress, formatUsd } from "@/lib/atomic/engine/prng";
+import type { ChainId, EntitySummary } from "@/lib/atomic/types";
 import { analystReport } from "@/lib/atomic/analyst/report";
 import { securityReport } from "@/lib/atomic/security/checks";
 import { onchainFactsForChains, resolveEns } from "@/lib/atomic/onchain/adapter";
@@ -37,6 +38,84 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   return { title: entity.label ?? `Investigate ${address.slice(0, 10)}…` };
 }
 
+/**
+ * Live facts power the on-chain panel and the security report, but they
+ * cost several RPC round-trips on an address's very first visit. These
+ * surfaces are deferred sections: the deterministic shell streams
+ * immediately and each resolves when the probe lands (the underlying
+ * SWR cache dedupes the three reads into one probe). Repeat visits are
+ * served instantly from the stale-while-revalidate cache.
+ */
+async function OnchainStateSection({ chains, address }: { chains: ChainId[]; address: string }) {
+  const live = await onchainFactsForChains(chains, address);
+  return <OnchainPanel facts={live} />;
+}
+
+async function SecurityGradeTile({ chains, address, entity }: { chains: ChainId[]; address: string; entity: EntitySummary }) {
+  const live = await onchainFactsForChains(chains, address);
+  const security = securityReport(address, entity, live);
+  return (
+    <Panel>
+      <div className="label-mono">Security grade</div>
+      <div className="mt-1.5 font-mono text-lg">
+        {security.grade} <span className="text-xs text-mist-dim">({security.score}/100)</span>
+      </div>
+    </Panel>
+  );
+}
+
+async function SecurityChecksSection({ chains, address, entity }: { chains: ChainId[]; address: string; entity: EntitySummary }) {
+  const live = await onchainFactsForChains(chains, address);
+  const security = securityReport(address, entity, live);
+  return (
+    <Panel>
+      <SectionHeader
+        title={`Security audit · grade ${security.grade}`}
+        sub={`Score ${security.score}/100 · ${security.liveChains?.length ? `live evidence via ${security.liveChains.map((c) => chainName(c)).join(", ")} public RPC · remaining checks heuristic` : "heuristic checks · deterministic"} · subject ${entity.address.slice(0, 12)}…`}
+      />
+      <div className="space-y-2">
+        {security.checks.map((c) => (
+          <div key={c.id} className="flex items-start gap-3 rounded-lg border border-ink-700 bg-ink-800/50 px-4 py-3">
+            <CheckStatusIcon status={c.status} />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm text-mist-bright">{c.title}</span>
+                <span className="font-mono text-[10px] text-mist-dim">{c.id}</span>
+                <Badge>{c.category}</Badge>
+                {c.source === "onchain" && <Badge tone="cyan">onchain</Badge>}
+              </div>
+              <p className="mt-1 text-xs text-mist">{c.detail}</p>
+              <p className="mt-1 font-mono text-[11px] text-mist-dim">evidence: {c.evidence}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function GradeTileSkeleton() {
+  return (
+    <Panel>
+      <div className="label-mono">Security grade</div>
+      <div className="mt-1.5 h-7 animate-pulse rounded bg-ink-800" style={{ width: "5.5rem" }} />
+    </Panel>
+  );
+}
+
+function SecurityAuditSkeleton() {
+  return (
+    <Panel>
+      <SectionHeader title="Security audit" sub="Reading public RPC…" action={<Badge>loading</Badge>} />
+      <div className="animate-pulse space-y-2">
+        <div className="h-12 rounded-lg bg-ink-800" />
+        <div className="h-12 rounded-lg bg-ink-800" />
+        <div className="h-12 rounded-lg bg-ink-800" />
+      </div>
+    </Panel>
+  );
+}
+
 export default async function EntityPage({ params, searchParams }: PageProps) {
   const { address: raw } = await params;
   const { tab } = await searchParams;
@@ -58,8 +137,6 @@ export default async function EntityPage({ params, searchParams }: PageProps) {
   const activeTab = TABS.some((t) => t.id === tab) ? tab! : "overview";
   const txs = activity(entity, 40, chainPool);
   const report = analystReport(entity);
-  const live = await onchainFactsForChains(entity.chains, address);
-  const security = securityReport(address, entity, live);
   const nftPositions = nfts(entity);
   const ageDays = Math.max(1, Math.round((Date.UTC(2026, 9, 1) - new Date(entity.firstSeen).getTime()) / 86400_000));
   const inflow = txs.filter((t) => t.type === "receive").reduce((a, t) => a + t.valueUsd, 0);
@@ -98,7 +175,9 @@ export default async function EntityPage({ params, searchParams }: PageProps) {
             <FlagsPanel entity={entity} />
           </Panel>
 
-          <OnchainPanel facts={live} />
+          <Suspense fallback={<LivePanelSkeleton />}>
+            <OnchainStateSection chains={entity.chains} address={address} />
+          </Suspense>
 
           <Suspense fallback={<LivePanelSkeleton />}>
             <LivePositionsSection chains={entity.chains} address={address} />
@@ -107,7 +186,9 @@ export default async function EntityPage({ params, searchParams }: PageProps) {
           <div className="grid gap-4 sm:grid-cols-3">
             <Panel><div className="label-mono">Inflow 90d</div><div className="mt-1.5 font-mono text-lg text-emerald-400">{formatUsd(inflow)}</div></Panel>
             <Panel><div className="label-mono">Outflow 90d</div><div className="mt-1.5 font-mono text-lg text-red-400">{formatUsd(outflow)}</div></Panel>
-            <Panel><div className="label-mono">Security grade</div><div className="mt-1.5 font-mono text-lg">{security.grade} <span className="text-xs text-mist-dim">({security.score}/100)</span></div></Panel>
+            <Suspense fallback={<GradeTileSkeleton />}>
+              <SecurityGradeTile chains={entity.chains} address={address} entity={entity} />
+            </Suspense>
           </div>
         </div>
       </div>
@@ -171,29 +252,9 @@ export default async function EntityPage({ params, searchParams }: PageProps) {
             label: "Security",
             content: (
               <div className="space-y-6">
-                <Panel>
-                  <SectionHeader
-                    title={`Security audit · grade ${security.grade}`}
-                    sub={`Score ${security.score}/100 · ${security.liveChains?.length ? `live evidence via ${security.liveChains.map((c) => chainName(c)).join(", ")} public RPC · remaining checks heuristic` : "heuristic checks · deterministic"} · subject ${entity.address.slice(0, 12)}…`}
-                  />
-                  <div className="space-y-2">
-                    {security.checks.map((c) => (
-                      <div key={c.id} className="flex items-start gap-3 rounded-lg border border-ink-700 bg-ink-800/50 px-4 py-3">
-                        <CheckStatusIcon status={c.status} />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-sm text-mist-bright">{c.title}</span>
-                            <span className="font-mono text-[10px] text-mist-dim">{c.id}</span>
-                            <Badge>{c.category}</Badge>
-                            {c.source === "onchain" && <Badge tone="cyan">onchain</Badge>}
-                          </div>
-                          <p className="mt-1 text-xs text-mist">{c.detail}</p>
-                          <p className="mt-1 font-mono text-[11px] text-mist-dim">evidence: {c.evidence}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </Panel>
+                <Suspense fallback={<SecurityAuditSkeleton />}>
+                  <SecurityChecksSection chains={entity.chains} address={address} entity={entity} />
+                </Suspense>
               </div>
             ),
           },
