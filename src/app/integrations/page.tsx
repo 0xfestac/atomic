@@ -1,6 +1,8 @@
+import { Suspense } from "react";
 import { CHAIN_LIST, CHAIN_WARNINGS } from "@/lib/atomic/chains";
 import { ensureChains } from "@/lib/atomic/chains-config";
 import { chainHealth, liveEnabled } from "@/lib/atomic/onchain/rpc";
+import type { ChainId } from "@/lib/atomic/types";
 import { Badge, PageHeader, Panel, SectionHeader } from "@/components/ui";
 import { IntegrationToggle } from "@/components/integrations/toggle";
 
@@ -41,14 +43,29 @@ const ADD_CHAIN_SNIPPET = `ATOMIC_CHAINS='[{
   ]
 }]'`;
 
+/**
+ * One health probe per live chain, each in its own Suspense boundary:
+ * the page shell paints immediately and every badge streams in when its
+ * probe lands (probes run concurrently and are cached for 30s), so a
+ * cold visit never blocks the whole page on RPC round-trips.
+ */
+async function ChainHealthBadge({ chainId }: { chainId: ChainId }) {
+  if (!liveEnabled()) return <Badge tone="amber">live reads off</Badge>;
+  const h = await chainHealth(chainId);
+  if (!h.reachable) return <Badge tone="red">rpc unreachable</Badge>;
+  return (
+    <span title={`probed ${h.checkedAt.slice(11, 19)}Z`}>
+      <Badge tone="green">#{h.blockNumber?.toLocaleString()}</Badge>
+    </span>
+  );
+}
+
+function HealthBadgeSkeleton() {
+  return <span className="inline-block h-[26px] w-24 animate-pulse rounded-full bg-ink-800" />;
+}
+
 export default async function IntegrationsPage() {
-  // Health for every configured chain, probed in parallel (30s cache).
   await ensureChains();
-  const liveChains = CHAIN_LIST.filter((c) => c.live);
-  const health = liveEnabled()
-    ? await Promise.all(liveChains.map((c) => chainHealth(c.id)))
-    : [];
-  const healthById = new Map(health.map((h) => [h.chain, h]));
 
   return (
     <div>
@@ -66,7 +83,6 @@ export default async function IntegrationsPage() {
           />
           <div className="space-y-2">
             {CHAIN_LIST.map((c) => {
-              const h = healthById.get(c.id);
               return (
                 <div key={c.id} className="rounded-lg border border-ink-700 bg-ink-800/50 px-4 py-2.5">
                   <div className="flex items-center justify-between gap-3">
@@ -77,19 +93,16 @@ export default async function IntegrationsPage() {
                       {c.source === "config" && <Badge tone="cyan">config</Badge>}
                       {!c.live && <Badge tone="amber">demo-only</Badge>}
                     </div>
-                    {c.live && h && (
-                      h.reachable ? (
-                        <Badge tone="green">#{h.blockNumber?.toLocaleString()}</Badge>
-                      ) : (
-                        <Badge tone="red">rpc unreachable</Badge>
-                      )
+                    {c.live ? (
+                      <Suspense fallback={<HealthBadgeSkeleton />}>
+                        <ChainHealthBadge chainId={c.id} />
+                      </Suspense>
+                    ) : (
+                      <Badge>off</Badge>
                     )}
-                    {c.live && !h && <Badge tone="amber">live reads off</Badge>}
-                    {!c.live && <Badge>off</Badge>}
                   </div>
                   <p className="mt-1 font-mono text-[10px] text-mist-dim">
                     {c.rpc.length} endpoint{c.rpc.length === 1 ? "" : "s"} {c.rpcOverridden ? "· operator override" : "· public defaults"}
-                    {h?.checkedAt ? ` · probed ${h.checkedAt.slice(11, 19)}Z` : ""}
                   </p>
                 </div>
               );

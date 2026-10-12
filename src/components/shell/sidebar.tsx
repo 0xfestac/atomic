@@ -34,7 +34,7 @@ export function Sidebar() {
   const pathname = usePathname();
   return (
     <aside className="fixed inset-y-0 left-0 z-30 flex w-60 flex-col border-r border-ink-700 bg-ink-900">
-      <Link href="/" className="flex items-center gap-3 px-5 pb-5 pt-6">
+      <Link href="/" prefetch className="flex items-center gap-3 px-5 pb-5 pt-6">
         <AtomicLogo />
         <AtomicWordmark />
       </Link>
@@ -46,7 +46,7 @@ export function Sidebar() {
               {group.items.map((item) => {
                 const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
                 return (
-                  <Link key={item.href} href={item.href} className={`nav-item ${active ? "nav-item-active" : ""}`}>
+                  <Link key={item.href} href={item.href} prefetch className={`nav-item ${active ? "nav-item-active" : ""}`}>
                     <span className="flex-1">
                       {item.label}
                       <span className="block text-[11px] text-mist-dim">{item.hint}</span>
