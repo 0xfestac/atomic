@@ -8,7 +8,7 @@ import {
   resolveEns,
   onchainFacts,
 } from "@/lib/atomic/onchain/adapter";
-import { rpcCall, RpcError } from "@/lib/atomic/onchain/rpc";
+import { rpcCall, RpcError, chainHealth, resetRpcCaches } from "@/lib/atomic/onchain/rpc";
 import { formatWei } from "@/lib/atomic/onchain/format";
 import { isValidWebhookUrl } from "@/lib/atomic/alerts/rules";
 import { rateLimit } from "@/lib/atomic/api/guard";
@@ -185,6 +185,64 @@ describe("rpc client", () => {
     vi.stubGlobal("fetch", fetchMock);
     await expect(rpcCall<string>("bnb", "eth_blockNumber", [], { retries: 0, timeoutMs: 50 })).rejects.toBeInstanceOf(RpcError);
   }, 3_000);
+});
+
+describe("chain health caching", () => {
+  beforeEach(() => {
+    resetRpcCaches();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  const blockResponse = (hex: string) =>
+    new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: hex }), { status: 200 });
+
+  it("probes once and serves the fresh entry without re-probing", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(blockResponse("0x1"));
+    vi.stubGlobal("fetch", fetchMock);
+    const first = await chainHealth("ethereum");
+    const second = await chainHealth("ethereum");
+    expect(first.reachable).toBe(true);
+    expect(first.blockNumber).toBe(1);
+    expect(second.blockNumber).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("serves an expired entry instantly and refreshes in the background", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(blockResponse("0x1"))
+        .mockResolvedValue(blockResponse("0x2"));
+      vi.stubGlobal("fetch", fetchMock);
+
+      expect((await chainHealth("ethereum")).blockNumber).toBe(1);
+      vi.advanceTimersByTime(31_000); // past the 30s health TTL
+
+      // expired entry: served immediately, never blocking on the refresh
+      expect((await chainHealth("ethereum")).blockNumber).toBe(1);
+      expect(fetchMock).toHaveBeenCalledTimes(2); // refresh started in the background
+
+      await vi.waitFor(async () => {
+        expect((await chainHealth("ethereum")).blockNumber).toBe(2);
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(2); // now served from the refreshed entry
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("resetRpcCaches forces a re-probe (used on chain-registry reloads)", async () => {
+    const fetchMock = vi.fn(async () => blockResponse("0x5"));
+    vi.stubGlobal("fetch", fetchMock);
+    await chainHealth("ethereum");
+    resetRpcCaches();
+    expect((await chainHealth("ethereum")).blockNumber).toBe(5);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("ENS resolution guards", () => {

@@ -1,5 +1,7 @@
 import type { ChainId } from "../types";
 import { chainOrNull } from "../chains";
+import { SwrCache } from "./swr";
+import { afterResponse } from "./background";
 
 /**
  * Keyless JSON-RPC transport. Endpoint lists live in the chain registry
@@ -107,14 +109,18 @@ export async function rpcCall<T>(
   );
 }
 
-interface HealthEntry {
-  checkedAt: number;
-  blockNumber: number | null;
-  ok: boolean;
-}
+const HEALTH_TTL_MS = 30_000;
 
-const HEALTH_TTL = 30_000;
-const healthCache = new Map<ChainId, HealthEntry>();
+/**
+ * Health probes are stale-while-revalidate: fresh entries return
+ * synchronously, and an expired entry is served immediately while a
+ * background refresh repopulates the cache — a badge or API read never
+ * blocks on a probe round-trip once the chain has been probed before
+ * (probes are also warmed at boot via src/instrumentation.ts). The cache
+ * is reset on chain-registry reloads so stale-endpoint entries never
+ * survive a reconfiguration.
+ */
+const healthCache = new SwrCache<ChainHealth>(HEALTH_TTL_MS, 64, afterResponse);
 
 /** Drop sticky endpoints and cached health probes — used on chain-registry reloads. */
 export function resetRpcCaches(): void {
@@ -129,27 +135,21 @@ export interface ChainHealth {
   checkedAt: string;
 }
 
-/** Cached probe — safe to call per-request. */
-export async function chainHealth(chainId: ChainId): Promise<ChainHealth> {
-  const cached = healthCache.get(chainId);
-  const now = Date.now();
-  if (cached && now - cached.checkedAt < HEALTH_TTL) {
-    return {
-      chain: chainId,
-      reachable: cached.ok,
-      blockNumber: cached.blockNumber,
-      checkedAt: new Date(cached.checkedAt).toISOString(),
-    };
-  }
-  let blockNumber: number | null = null;
-  let ok = false;
+/**
+ * Probe one chain (single eth_blockNumber with a short timeout). Never
+ * throws — an unreachable chain is a valid, cacheable result.
+ */
+async function probeHealth(chainId: ChainId): Promise<ChainHealth> {
   try {
     const hex = await rpcCall<string>(chainId, "eth_blockNumber", [], { timeoutMs: 5_000, retries: 0 });
-    blockNumber = Number(BigInt(hex));
-    ok = Number.isFinite(blockNumber);
+    const blockNumber = Number(BigInt(hex));
+    return { chain: chainId, reachable: Number.isFinite(blockNumber), blockNumber, checkedAt: new Date().toISOString() };
   } catch {
-    ok = false;
+    return { chain: chainId, reachable: false, blockNumber: null, checkedAt: new Date().toISOString() };
   }
-  healthCache.set(chainId, { checkedAt: now, blockNumber, ok });
-  return { chain: chainId, reachable: ok, blockNumber, checkedAt: new Date(now).toISOString() };
+}
+
+/** Cached probe — safe to call per-request; expired entries serve instantly. */
+export async function chainHealth(chainId: ChainId): Promise<ChainHealth> {
+  return healthCache.get(chainId, () => probeHealth(chainId));
 }

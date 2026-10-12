@@ -11,12 +11,6 @@ const SECURITY_HEADERS = [
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
-  experimental: {
-    // Reuse visited dynamic pages in the client router cache for a short
-    // window: back-and-forth navigation renders instantly instead of
-    // re-fetching the RSC payload (Next 15 defaults dynamic staleness to 0).
-    staleTimes: { dynamic: 15 },
-  },
   async headers() {
     return [{ source: "/:path*", headers: SECURITY_HEADERS }];
   },
